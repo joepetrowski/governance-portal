@@ -107,7 +107,7 @@ const DESCRIPTORS = { relay, assetHub, collectives, bridgeHub, people, coretime,
 
 /** Block time of the clock each governance body counts in. */
 export const RELAY_BLOCK_MS = 6_000
-// Fellowship referenda count Collectives blocks (e.g. the 30 day fast-promotion decision period
+// Fellowship referenda count Collectives blocks (e.g., the 30-day fast-promotion decision period
 // is 216,000 blocks), which are 12 seconds.
 export const COLLECTIVES_BLOCK_MS = 12_000
 

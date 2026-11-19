@@ -10,6 +10,7 @@ import {
   getClient,
   RELAY_BLOCK_MS,
 } from "../chains"
+import { formatList } from "../ui/format"
 import { type Curve, delay, threshold } from "./curves"
 import { blake2Hex, type CallNode, chainLabel, decodeCall, isCallTo, walk } from "./decode"
 
@@ -57,6 +58,8 @@ export interface Proposal {
   /** Present when the proposal dispatches (or whitelists) a call through the whitelist. */
   whitelist?: { hash: string; whitelisted: boolean }
   upgrades: Upgrade[]
+  /** Chains with a call that could not be decoded, so its contents are unknown. */
+  undecoded: string[]
   /** The call that will actually execute, for display. */
   call: CallNode | null
 }
@@ -94,7 +97,7 @@ const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
 
 // Minimum rank that can vote on a Fellowship track, as `MinRankOfClass` in the Collectives runtime
 // (fellowship/tracks.rs). Tracks 1-9 are the voice of that rank and above. Retention (11-16),
-// promotion (21-26) and fast promotion (31-33) tracks end in the rank being decided, and voters
+// promotion (21-26), and fast promotion (31-33) tracks end in the rank being decided, and voters
 // must be two ranks above it: retain at or promote to III Dan needs rank 5.
 function fellowshipMinRank(track: number): number {
   return track <= 9 ? track : (track % 10) + 2
@@ -303,12 +306,12 @@ function describe(call: CallNode | null): string {
   const leaves = all.filter((n) => n.children.length === 0 && !n.undecoded)
   if (leaves.length === 0) {
     const targets = [...new Set(all.filter((n) => n.undecoded).map((n) => chainLabel(n.chain)))]
-    return `Call on ${targets.join(", ")}`
+    return `Call on ${formatList(targets)}`
   }
   const names = [...new Set(leaves.map((n) => `${n.pallet}.${n.name}`))]
   const where = [...new Set(leaves.map((n) => chainLabel(n.chain)))]
-  const what = names.length > 2 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ")
-  return `${what} on ${where.join(", ")}`
+  const what = names.length > 2 ? [...names.slice(0, 2), `${names.length - 2} more`] : names
+  return `${formatList(what)} on ${formatList(where)}`
 }
 
 function makeProposal(parts: {
@@ -319,9 +322,15 @@ function makeProposal(parts: {
   fallbackTitle?: string
 }): Proposal {
   const upgrades = upgradesIn(parts.call)
+  const undecoded = parts.call
+    ? [...new Set([...walk(parts.call)].filter((n) => n.undecoded).map((n) => chainLabel(n.chain)))]
+    : []
+  // In an upgrade, a call that cannot be decoded is counted as a chain being upgraded, so that
+  // the title does not understate the proposal. The card says which chains are unverified.
+  const chains = [...new Set([...upgrades.map((u) => u.chain), ...undecoded])]
   const title =
     upgrades.length > 0
-      ? `Runtime upgrade of ${upgrades.length === 1 ? upgrades[0].chain : `${upgrades.length} chains`}`
+      ? `Runtime upgrade of ${chains.length === 1 ? chains[0] : `${chains.length} chains`}`
       : (parts.fallbackTitle ?? describe(parts.call))
   return {
     id: [
@@ -336,6 +345,7 @@ function makeProposal(parts: {
     open: parts.open,
     whitelist: parts.whitelist,
     upgrades,
+    undecoded,
     call: parts.call,
   }
 }

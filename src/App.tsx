@@ -1,3 +1,4 @@
+import { formatTime } from "./ui/format"
 import { ProposalCard } from "./ui/ProposalCard"
 import { useSnapshot } from "./useSnapshot"
 
@@ -9,7 +10,7 @@ export default function App() {
       <header className="mb-6">
         <h1 className="text-2xl font-semibold">Polkadot Governance</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Active Fellowship referenda and public referenda on the Root, Whitelisted Caller and
+          Active Fellowship referenda and public referenda on the Root, Whitelisted Caller, and
           Staking Admin tracks.
         </p>
       </header>
@@ -34,7 +35,7 @@ export default function App() {
 
       {snapshot && (
         <footer className="mt-6 text-xs text-zinc-500">
-          Read from chain state at {new Date(snapshot.loadedAt).toLocaleTimeString()}.
+          Read from chain state at {formatTime(snapshot.loadedAt)}.
         </footer>
       )}
     </div>

@@ -1,6 +1,6 @@
 import type { Proposal } from "../gov/load"
 import { CallTree } from "./CallTree"
-import { shortHex } from "./format"
+import { formatList, shortHex } from "./format"
 import { StageNote, StagePanel } from "./StagePanel"
 
 function FellowshipStage({ proposal }: { proposal: Proposal }) {
@@ -41,7 +41,22 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
               {u.chain}
             </li>
           ))}
+          {proposal.undecoded.map((chain) => (
+            <li
+              key={`undecoded-${chain}`}
+              className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+            >
+              {chain} (not decoded)
+            </li>
+          ))}
         </ul>
+      )}
+      {proposal.undecoded.length > 0 && (
+        <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+          Unable to decode the {proposal.undecoded.length === 1 ? "call" : "calls"} on{" "}
+          {formatList(proposal.undecoded)}, so what {proposal.undecoded.length === 1 ? "it does" : "they do"}{" "}
+          there is unverified.
+        </p>
       )}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">

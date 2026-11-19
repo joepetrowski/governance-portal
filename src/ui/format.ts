@@ -17,6 +17,18 @@ export function duration(blocks: number, blockMs: number): string {
   return `${m}m`
 }
 
+/** Time of day on the 24-hour clock, e.g., "19:22". */
+export const formatTime = (timestamp: number) =>
+  new Date(timestamp).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+
+/** A list in prose, with the serial comma: "A, B, and C". */
+export const formatList = (items: string[]) =>
+  new Intl.ListFormat("en-US", { type: "conjunction" }).format(items)
+
 export const shortAddress = (address: string) => `${address.slice(0, 6)}…${address.slice(-6)}`
 
 export const shortHex = (hex: string) => (hex.length > 22 ? `${hex.slice(0, 10)}…${hex.slice(-8)}` : hex)

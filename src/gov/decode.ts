@@ -127,7 +127,7 @@ const versioned = (location: unknown) =>
 
 /** Resolve an XCM location, relative to `from`, to the chain it names. */
 export function resolveLocation(from: ChainRef, location: unknown): ChainRef {
-  const unknown: ChainRef = { external: "an unrecognised location" }
+  const unknown: ChainRef = { external: "an unrecognized location" }
   if (!("id" in from) || !isRecord(location)) return unknown
   const parents = Number(location.parents)
   const interior = location.interior

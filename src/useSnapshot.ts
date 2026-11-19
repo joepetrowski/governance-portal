@@ -8,22 +8,22 @@ export function useSnapshot() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
+    let canceled = false
     let timer: ReturnType<typeof setTimeout>
     const tick = async () => {
       try {
         const next = await loadSnapshot()
-        if (cancelled) return
+        if (canceled) return
         setSnapshot(next)
         setError(null)
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+        if (!canceled) setError(e instanceof Error ? e.message : String(e))
       }
-      if (!cancelled) timer = setTimeout(tick, REFRESH_MS)
+      if (!canceled) timer = setTimeout(tick, REFRESH_MS)
     }
     tick()
     return () => {
-      cancelled = true
+      canceled = true
       clearTimeout(timer)
     }
   }, [])

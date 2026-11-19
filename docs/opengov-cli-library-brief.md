@@ -35,7 +35,7 @@ Written against commit `4266ec0`.
 
 One crate with a library and a binary:
 
-- `src/lib.rs`: the public API below. No filesystem, network, stdout, clap or tokio. Must build
+- `src/lib.rs`: the public API below. No filesystem, network, stdout, clap, or tokio. Must build
   for `wasm32-unknown-unknown`.
 - `src/main.rs` plus the CLI modules: argument parsing, downloading, files, printing. Behind a
   default `cli` feature that owns `clap`, `tokio`, `reqwest`.
@@ -153,7 +153,7 @@ Build with `wasm-pack build --target web --no-default-features --features wasm`.
 ## Dependencies
 
 The library needs only: the `subxt` codegen macro and the types it generates, `H256`,
-`parity-scale-codec`, a blake2-256 implementation and `hex`.
+`parity-scale-codec`, a blake2-256 implementation, and `hex`.
 
 - Check the subxt documentation for the feature set that compiles the generated types for
   `wasm32-unknown-unknown` without the native RPC stack, rather than assuming one. If nothing
@@ -166,7 +166,7 @@ The library needs only: the `subxt` codegen macro and the types it generates, `H
 
 1. `cargo test` passes, including the existing encoding tests in `src/tests.rs`, unchanged in
    what they assert.
-2. CLI behaviour is unchanged: same flags, same output, same files written. For a fixed input,
+2. CLI behavior is unchanged: same flags, same output, same files written. For a fixed input,
    `build-upgrade --local` and `submit-referendum --output calldata` produce byte-identical
    output before and after.
 3. New tests assert that the library functions return the same bytes as the CLI path for at
