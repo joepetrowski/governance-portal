@@ -89,8 +89,11 @@ export const CHAINS: Record<ChainId, ChainConfig> = {
   bulletin: {
     name: "Bulletin",
     paraId: 1010,
-    // TODO: no public endpoint known yet. Calls to Bulletin are decoded once one is added.
-    rpcs: [],
+    rpcs: [
+      "wss://bulletin-rpc.polkadot.io",
+      "wss://rpc-bulletin.luckyfriday.io",
+      "wss://spectrum-03.simplystaking.xyz",
+    ],
     runtime: "bulletin-polkadot",
   },
 }

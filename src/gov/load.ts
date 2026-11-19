@@ -92,13 +92,12 @@ interface Ongoing {
 
 const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
 
-// Minimum rank that can vote on a Fellowship track (`MinRankOfClass` in the Collectives runtime):
-// regular tracks are their rank; retention, promotion and fast promotion tracks are offset.
+// Minimum rank that can vote on a Fellowship track, as `MinRankOfClass` in the Collectives runtime
+// (fellowship/tracks.rs). Tracks 1-9 are the voice of that rank and above. Retention (11-16),
+// promotion (21-26) and fast promotion (31-33) tracks end in the rank being decided, and voters
+// must be two ranks above it: retain at or promote to III Dan needs rank 5.
 function fellowshipMinRank(track: number): number {
-  if (track >= 31) return track - 28
-  if (track >= 21) return track - 18
-  if (track >= 11) return track - 8
-  return track
+  return track <= 9 ? track : (track % 10) + 2
 }
 
 const DOT = 10_000_000_000n
