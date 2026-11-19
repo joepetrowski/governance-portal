@@ -1,0 +1,45 @@
+{
+  "version": 0,
+  "descriptorPath": ".papi/descriptors",
+  "entries": {
+    "assetHub": {
+      "wsUrl": "wss://polkadot-asset-hub-rpc.polkadot.io",
+      "metadata": ".papi/metadata/assetHub.scale",
+      "genesis": "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
+      "codeHash": "0xedf03c44b8452754a18a7b68405d65178da06a5a1994604c7420343d9b044325"
+    },
+    "collectives": {
+      "wsUrl": "wss://polkadot-collectives-rpc.polkadot.io",
+      "metadata": ".papi/metadata/collectives.scale",
+      "genesis": "0x46ee89aa2eedd13e988962630ec9fb7565964cf5023bb351f2b6b25c1b68b0b2",
+      "codeHash": "0xda0e522186b53ffbff2adbbd2936eab5e00b87d97835bb172f5cf8772781adeb"
+    },
+    "bridgeHub": {
+      "wsUrl": "wss://polkadot-bridge-hub-rpc.polkadot.io",
+      "metadata": ".papi/metadata/bridgeHub.scale",
+      "genesis": "0xdcf691b5a3fbe24adc99ddc959c0561b973e329b1aef4c4b22e7bb2ddecb4464",
+      "codeHash": "0xc7017f4c55309d7a03afca27fc3930a1983b4d0eacb04e1a4b0a08db8d5d7a0f"
+    },
+    "people": {
+      "wsUrl": "wss://polkadot-people-rpc.polkadot.io",
+      "metadata": ".papi/metadata/people.scale",
+      "genesis": "0x67fa177a097bfa18f77ea95ab56e9bcdfeb0e5b8a40e46298bb93e16b6fc5008",
+      "codeHash": "0x3421766bff1055dbc70814183bb5b3b7d6ceb21ca7b8e1dd05d93b212910d017"
+    },
+    "coretime": {
+      "wsUrl": "wss://polkadot-coretime-rpc.polkadot.io",
+      "metadata": ".papi/metadata/coretime.scale",
+      "genesis": "0xefb56e30d9b4a24099f88820987d0f45fb645992416535d87650d98e00f46fc4",
+      "codeHash": "0x104576d94498e0d6af9d34ef8529a69126678736b088d75c8095c08b44f8f6d0"
+    },
+    "bulletin": {
+      "metadata": ".papi/metadata/bulletin.scale"
+    },
+    "relay": {
+      "chain": "polkadot",
+      "metadata": ".papi/metadata/relay.scale",
+      "genesis": "0x91b171bb158e2d3848fa23a9f1c25182fb8e20313b2c1eb49219da7a70ce90c3",
+      "codeHash": "0x528e0c52403bba2bc05e68d7b7c0314318c7b868a780572d4e1483d87ad39189"
+    }
+  }
+}

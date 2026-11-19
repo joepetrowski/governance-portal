@@ -1,0 +1,42 @@
+import { ProposalCard } from "./ui/ProposalCard"
+import { useSnapshot } from "./useSnapshot"
+
+export default function App() {
+  const { snapshot, error } = useSnapshot()
+
+  return (
+    <div className="mx-auto max-w-4xl px-4 py-8">
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold">Polkadot Governance</h1>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Active Fellowship referenda and public referenda on the Root, Whitelisted Caller and
+          Staking Admin tracks.
+        </p>
+      </header>
+
+      {error && (
+        <p className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          Could not read chain state: {error}. {snapshot ? "Showing the last result." : "Retrying."}
+        </p>
+      )}
+
+      {!snapshot && !error && <p className="text-sm text-zinc-500">Reading chain state…</p>}
+
+      {snapshot && snapshot.proposals.length === 0 && (
+        <p className="text-sm text-zinc-500">No active referenda.</p>
+      )}
+
+      <div className="space-y-4">
+        {snapshot?.proposals.map((proposal) => (
+          <ProposalCard key={proposal.id} proposal={proposal} />
+        ))}
+      </div>
+
+      {snapshot && (
+        <footer className="mt-6 text-xs text-zinc-500">
+          Read from chain state at {new Date(snapshot.loadedAt).toLocaleTimeString()}.
+        </footer>
+      )}
+    </div>
+  )
+}

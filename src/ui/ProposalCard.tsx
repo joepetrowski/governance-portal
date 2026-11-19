@@ -1,0 +1,72 @@
+import type { Proposal } from "../gov/load"
+import { CallTree } from "./CallTree"
+import { shortHex } from "./format"
+import { StageNote, StagePanel } from "./StagePanel"
+
+function FellowshipStage({ proposal }: { proposal: Proposal }) {
+  if (proposal.fellowship) return <StagePanel stage={proposal.fellowship} />
+  if (!proposal.whitelist) return null
+  return proposal.whitelist.whitelisted ? (
+    <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
+  ) : (
+    <StageNote title="Fellowship">
+      Not whitelisted, and no Fellowship referendum to whitelist it is open. The public referendum
+      cannot enact without it.
+    </StageNote>
+  )
+}
+
+function OpenStage({ proposal }: { proposal: Proposal }) {
+  if (proposal.open) return <StagePanel stage={proposal.open} />
+  if (!proposal.whitelist) return null
+  return (
+    <StageNote title="Public referendum">
+      No public referendum that dispatches this call is open.
+    </StageNote>
+  )
+}
+
+export function ProposalCard({ proposal }: { proposal: Proposal }) {
+  return (
+    <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 className="text-lg font-semibold">{proposal.title}</h2>
+      {proposal.upgrades.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1.5">
+          {proposal.upgrades.map((u) => (
+            <li
+              key={u.chain}
+              title={`Code hash ${u.codeHash}`}
+              className="rounded-full bg-pink-100 px-2.5 py-0.5 text-xs font-medium text-pink-900 dark:bg-pink-950 dark:text-pink-200"
+            >
+              {u.chain}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <FellowshipStage proposal={proposal} />
+        <OpenStage proposal={proposal} />
+      </div>
+
+      {proposal.call && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            What it does
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <CallTree call={proposal.call} />
+          </div>
+          {proposal.whitelist && (
+            <p className="mt-2 text-xs text-zinc-500">
+              Whitelisted call hash{" "}
+              <span className="font-mono" title={proposal.whitelist.hash}>
+                {shortHex(proposal.whitelist.hash)}
+              </span>
+            </p>
+          )}
+        </details>
+      )}
+    </article>
+  )
+}
