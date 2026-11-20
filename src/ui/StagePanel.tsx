@@ -7,13 +7,19 @@ function statusLine(stage: Stage): { label: string; detail: string } {
   const until = (block: number) => duration(block - now, blockMs)
   switch (status.phase) {
     case "awaitingDeposit":
-      return { label: "Waiting for decision deposit", detail: "Voting is open, but it cannot be decided yet" }
+      return {
+        label: "Waiting for decision deposit",
+        detail: "Voting is open, but it cannot be decided yet",
+      }
     case "preparing":
       return { label: "Preparing", detail: `Decision can start in ${until(status.endsAt)}` }
     case "queued":
       return { label: "Queued", detail: "Waiting for a free slot on its track" }
     case "confirming":
-      return { label: "Confirming", detail: `Passes in ${until(status.endsAt)} if it stays above both thresholds` }
+      return {
+        label: "Confirming",
+        detail: `Passes in ${until(status.endsAt)} if it stays above both thresholds`,
+      }
     case "deciding": {
       const left = `${until(status.endsAt)} left to decide`
       if (stage.passing) return { label: "Deciding", detail: `Passing · ${left}` }
@@ -35,7 +41,9 @@ function Meter(props: { label: string; current: number | null; required: number 
       <div className="flex items-baseline justify-between text-sm">
         <span className="text-zinc-600 dark:text-zinc-400">{label}</span>
         <span className="tabular-nums">
-          <span className={met ? "font-medium text-emerald-700 dark:text-emerald-400" : "font-medium"}>
+          <span
+            className={met ? "font-medium text-emerald-700 dark:text-emerald-400" : "font-medium"}
+          >
             {current === null ? "no votes" : percent(current)}
           </span>
           <span className="text-zinc-500"> · needs {percent(required)}</span>
@@ -100,7 +108,15 @@ function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
   )
 }
 
-export function StagePanel(props: { stage: Stage; depositAction?: ReactNode; children?: ReactNode }) {
+/**
+ * One referendum: status, approval and support against their thresholds, time elapsed, and decision
+ * deposit. `children` go below, which is where the vote controls are placed.
+ */
+export function StagePanel(props: {
+  stage: Stage
+  depositAction?: ReactNode
+  children?: ReactNode
+}) {
   const { stage, children } = props
   const { label, detail } = statusLine(stage)
   const heading = stage.body === "fellowship" ? "Fellowship referendum" : "Public referendum"

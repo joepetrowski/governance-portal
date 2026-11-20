@@ -9,9 +9,13 @@ import { chainByParaId, type ChainId, CHAINS, decodeCallData } from "../chains"
 /** Where a call executes: one of the system chains, or somewhere we can only describe. */
 export type ChainRef = { id: ChainId } | { external: string }
 
+/** A decoded call, with the calls it leads to as its children. */
 export interface CallNode {
+  /** The chain on which this call executes. */
   chain: ChainRef
+  /** Pallet name, as in the runtime's metadata. */
   pallet: string
+  /** Call name, as in the runtime's metadata. */
   name: string
   /** Decoded arguments, with nested calls and XCM programs left in place. */
   args: unknown
@@ -25,8 +29,10 @@ export interface CallNode {
   undecoded?: string
 }
 
+/** Display name of the chain, or the description of a place outside the system. */
 export const chainLabel = (ref: ChainRef) => ("id" in ref ? CHAINS[ref.id].name : ref.external)
 
+/** BLAKE2b-256 hash of the bytes, as hex with a `0x` prefix. */
 export const blake2Hex = (bytes: Uint8Array) => toHex(Blake2256(bytes))
 
 type Tagged = { type: string; value?: unknown }
@@ -37,6 +43,11 @@ const isCall = (v: unknown): v is { type: string; value: Tagged } =>
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Uint8Array)
 
+/**
+ * Decode call data against the live runtime of the chain, and follow every call it dispatches, on
+ * that chain or over XCM. Never throws: a call that cannot be decoded becomes a node with
+ * `undecoded` set.
+ */
 export async function decodeCall(chain: ChainRef, bytes: Uint8Array): Promise<CallNode> {
   if (!("id" in chain))
     return failed(chain, bytes, `Calls on ${chain.external} are not decoded yet`)
@@ -131,9 +142,10 @@ export function resolveLocation(from: ChainRef, location: unknown): ChainRef {
   if (!("id" in from) || !isRecord(location)) return unknown
   const parents = Number(location.parents)
   const interior = location.interior
-  const junctions: Tagged[] = !isTagged(interior) || interior.type === "Here"
-    ? []
-    : ((Array.isArray(interior.value) ? interior.value : [interior.value]) as Tagged[])
+  const junctions: Tagged[] =
+    !isTagged(interior) || interior.type === "Here"
+      ? []
+      : ((Array.isArray(interior.value) ? interior.value : [interior.value]) as Tagged[])
   const fromRelay = CHAINS[from.id].paraId === null
 
   const para = (n: unknown): ChainRef => {
@@ -169,5 +181,6 @@ export function* walk(node: CallNode): Generator<CallNode> {
   for (const child of node.children) yield* walk(child)
 }
 
+/** Whether the node is a decoded call to `pallet.name`. */
 export const isCallTo = (node: CallNode, pallet: string, name: string) =>
   !node.undecoded && node.pallet === pallet && node.name === name

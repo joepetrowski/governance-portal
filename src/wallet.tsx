@@ -11,6 +11,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useS
 const DAPP_NAME = "Polkadot Governance"
 const STORAGE_KEY = "wallet"
 
+/** A wallet account, with the signer that the extension provides for it. */
 export type Account = InjectedPolkadotAccount
 
 interface Wallet {
@@ -18,12 +19,17 @@ interface Wallet {
   available: string[]
   /** Name of the connected extension. */
   connected: string | null
+  /** Accounts the extension has shared with this page. */
   accounts: Account[]
   /** The account that signs. */
   selected: Account | null
+  /** Why the last attempt to connect failed, if it did. */
   error: string | null
+  /** Connect to an extension by name, and remember it for the next visit. */
   connect: (extension: string) => Promise<void>
+  /** Forget the extension and its accounts. */
   disconnect: () => void
+  /** Choose the account that signs. */
   select: (address: string) => void
 }
 
@@ -47,6 +53,7 @@ const remember = (value: { extension?: string; address?: string }) => {
 const talismanFirst = (names: string[]) =>
   [...names].sort((a, b) => Number(b === "talisman") - Number(a === "talisman"))
 
+/** Holds the wallet connection for the page. Reconnects to the extension used on the last visit. */
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState<string[]>([])
   const [extension, setExtension] = useState<InjectedExtension | null>(null)
@@ -121,6 +128,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   )
 }
 
+/** The wallet connection. Must be called inside `WalletProvider`. */
 export function useWallet(): Wallet {
   const wallet = useContext(WalletContext)
   if (!wallet) throw new Error("useWallet must be used inside WalletProvider")

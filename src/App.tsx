@@ -8,6 +8,9 @@ import { useCleanups } from "./useCleanups"
 import { useSnapshot } from "./useSnapshot"
 import { useWallet } from "./wallet"
 
+/**
+ * The page: header with the wallet, the release wizard, pending cleanup, and the open proposals.
+ */
 export default function App() {
   const { snapshot, error, refresh } = useSnapshot()
   const wallet = useWallet()
@@ -42,7 +45,9 @@ export default function App() {
 
       {!snapshot && !error && <p className="text-sm text-zinc-500">Reading chain state…</p>}
 
-      {snapshot && <ReleaseWizard proposals={snapshot.proposals} statuses={statuses} onSubmitted={refresh} />}
+      {snapshot && (
+        <ReleaseWizard proposals={snapshot.proposals} statuses={statuses} onSubmitted={refresh} />
+      )}
 
       <CleanupPanel cleanups={cleanups} onCleaned={refresh} />
 
@@ -52,14 +57,21 @@ export default function App() {
 
       <div className="space-y-4">
         {snapshot?.proposals.map((proposal) => (
-          <ProposalCard key={proposal.id} proposal={proposal} statuses={statuses} onVoted={refresh} />
+          <ProposalCard
+            key={proposal.id}
+            proposal={proposal}
+            statuses={statuses}
+            onVoted={refresh}
+          />
         ))}
       </div>
 
       {snapshot && (
         <footer className="mt-6 text-xs text-zinc-500">
           Read from chain state at {formatTime(snapshot.loadedAt)}.
-          {cleanups.length > 0 && !cleanups.some(needsCleanup) && " No finished votes or expired locks to clear."}
+          {cleanups.length > 0 &&
+            !cleanups.some(needsCleanup) &&
+            " No finished votes or expired locks to clear."}
         </footer>
       )}
     </div>

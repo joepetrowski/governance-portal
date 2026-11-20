@@ -3,6 +3,7 @@ import type { AccountStatus } from "../gov/votes"
 import { CallTree } from "./CallTree"
 import { DepositButton } from "./DepositButton"
 import { formatList, shortHex } from "./format"
+import { Prose } from "./Prose"
 import { StageNote, StagePanel } from "./StagePanel"
 import { VotePanel } from "./VotePanel"
 
@@ -17,7 +18,9 @@ function FellowshipStage({ proposal, statuses, onVoted }: Props) {
     return (
       <StagePanel
         stage={proposal.fellowship}
-        depositAction={<DepositButton stage={proposal.fellowship} statuses={statuses} onPlaced={onVoted} />}
+        depositAction={
+          <DepositButton stage={proposal.fellowship} statuses={statuses} onPlaced={onVoted} />
+        }
       >
         <VotePanel stage={proposal.fellowship} statuses={statuses} onVoted={onVoted} />
       </StagePanel>
@@ -38,7 +41,9 @@ function OpenStage({ proposal, statuses, onVoted }: Props) {
     return (
       <StagePanel
         stage={proposal.open}
-        depositAction={<DepositButton stage={proposal.open} statuses={statuses} onPlaced={onVoted} />}
+        depositAction={
+          <DepositButton stage={proposal.open} statuses={statuses} onPlaced={onVoted} />
+        }
       >
         <VotePanel stage={proposal.open} statuses={statuses} onVoted={onVoted} />
       </StagePanel>
@@ -51,11 +56,17 @@ function OpenStage({ proposal, statuses, onVoted }: Props) {
   )
 }
 
+/**
+ * One proposal: its title, the chains it upgrades, its Fellowship and public stages side by side,
+ * and its decoded call.
+ */
 export function ProposalCard(props: Props) {
   const { proposal } = props
   return (
     <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h2 className="text-lg font-semibold">{proposal.title}</h2>
+      <h2 className="text-lg font-semibold">
+        <Prose>{proposal.title}</Prose>
+      </h2>
       {proposal.upgrades.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {proposal.upgrades.map((u) => (
@@ -80,8 +91,8 @@ export function ProposalCard(props: Props) {
       {proposal.undecoded.length > 0 && (
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
           Unable to decode the {proposal.undecoded.length === 1 ? "call" : "calls"} on{" "}
-          {formatList(proposal.undecoded)}, so what {proposal.undecoded.length === 1 ? "it does" : "they do"}{" "}
-          there is unverified.
+          {formatList(proposal.undecoded)}, so what{" "}
+          {proposal.undecoded.length === 1 ? "it does" : "they do"} there is unverified.
         </p>
       )}
 

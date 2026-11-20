@@ -3,6 +3,10 @@ import { loadSnapshot, type Snapshot } from "./gov/load"
 
 const REFRESH_MS = 60_000
 
+/**
+ * The current snapshot, reloaded every minute and whenever `refresh` is called. A failed reload
+ * keeps the previous snapshot and reports the error.
+ */
 export function useSnapshot() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)

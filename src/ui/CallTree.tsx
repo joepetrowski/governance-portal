@@ -14,7 +14,10 @@ function formatValue(value: unknown): string {
   if (typeof value !== "object") return String(value)
   if (Array.isArray(value)) return `[${value.map(formatValue).join(", ")}]`
   const tagged = value as { type?: unknown; value?: unknown }
-  if (typeof tagged.type === "string" && Object.keys(value).every((k) => k === "type" || k === "value"))
+  if (
+    typeof tagged.type === "string" &&
+    Object.keys(value).every((k) => k === "type" || k === "value")
+  )
     return tagged.value === undefined ? tagged.type : `${tagged.type}(${formatValue(tagged.value)})`
   return `{ ${Object.entries(value)
     .map(([k, v]) => `${k}: ${formatValue(v)}`)
@@ -50,7 +53,9 @@ function Node({ node }: { node: CallNode }) {
         {node.undecoded ? (
           <span className="text-sm text-amber-700 dark:text-amber-400">
             Not decoded: {node.undecoded}
-            {node.bytes && <span className="ml-2 font-mono text-xs">{shortHex(toHex(node.bytes))}</span>}
+            {node.bytes && (
+              <span className="ml-2 font-mono text-xs">{shortHex(toHex(node.bytes))}</span>
+            )}
           </span>
         ) : (
           <span className="font-mono text-sm">
@@ -82,6 +87,7 @@ function Node({ node }: { node: CallNode }) {
   )
 }
 
+/** A call and everything it dispatches, as a nested list with each call's chain and arguments. */
 export function CallTree({ call }: { call: CallNode }) {
   return (
     <ul>

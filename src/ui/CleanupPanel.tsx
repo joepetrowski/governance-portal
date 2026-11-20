@@ -8,7 +8,8 @@ import { choice, TxStatus, useSubmit } from "./tx"
 function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: () => void }) {
   const { cleanup, account } = props
   const { state, busy, submit } = useSubmit(props.onCleaned)
-  const when = (block: number) => formatDateTime(cleanup.loadedAt + (block - cleanup.now) * RELAY_BLOCK_MS)
+  const when = (block: number) =>
+    formatDateTime(cleanup.loadedAt + (block - cleanup.now) * RELAY_BLOCK_MS)
   const count = cleanup.stale.length
   const freed = cleanup.lockedNow - cleanup.lockedAfter
 
@@ -51,7 +52,9 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
       )}
       {count > 0 && (
         <details className="mt-2">
-          <summary className="cursor-pointer text-sm text-zinc-700 dark:text-zinc-300">Votes to clear</summary>
+          <summary className="cursor-pointer text-sm text-zinc-700 dark:text-zinc-300">
+            Votes to clear
+          </summary>
           <ul className="mt-2 space-y-0.5 text-sm">
             {cleanup.stale.map((vote) => (
               <li key={`${vote.trackId}-${vote.index}`}>
@@ -74,10 +77,11 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
   )
 }
 
-/** Votes on finished public referenda, and voting locks that can be lowered, per wallet account. */
+/** Whether the account has stale votes to remove or a voting lock that can be lowered. */
 export const needsCleanup = (cleanup: Cleanup) => cleanup.stale.length + cleanup.tracks.length > 0
 
 /**
+ * Votes on finished public referenda, and voting locks that can be lowered, per wallet account.
  * Shown above the proposals, and only when an account has something to clear, so that it is seen
  * without scrolling but takes no room otherwise.
  */
@@ -99,7 +103,12 @@ export function CleanupPanel(props: { cleanups: Cleanup[]; onCleaned: () => void
       </p>
       <ul className="mt-3 space-y-3">
         {pending.map(({ cleanup, account }) => (
-          <AccountCleanup key={cleanup.address} cleanup={cleanup} account={account} onCleaned={props.onCleaned} />
+          <AccountCleanup
+            key={cleanup.address}
+            cleanup={cleanup}
+            account={account}
+            onCleaned={props.onCleaned}
+          />
         ))}
       </ul>
     </section>

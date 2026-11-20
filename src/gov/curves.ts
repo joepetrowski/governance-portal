@@ -3,9 +3,13 @@
 
 const PERBILL = 1e9
 
+/** A threshold curve of a track, in the shape that `pallet-referenda` stores it. */
 export type Curve =
   | { type: "LinearDecreasing"; value: { length: number; floor: number; ceil: number } }
-  | { type: "SteppedDecreasing"; value: { begin: number; end: number; step: number; period: number } }
+  | {
+      type: "SteppedDecreasing"
+      value: { begin: number; end: number; step: number; period: number }
+    }
   | { type: "Reciprocal"; value: { factor: bigint; x_offset: bigint; y_offset: bigint } }
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v))

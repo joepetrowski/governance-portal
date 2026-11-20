@@ -14,14 +14,9 @@ import {
 import type { PolkadotClient } from "polkadot-api"
 import { createWsClient } from "polkadot-api/ws"
 
+/** Identifier of a chain in the Polkadot system, as used throughout the code. */
 export type ChainId =
-  | "relay"
-  | "assetHub"
-  | "collectives"
-  | "bridgeHub"
-  | "people"
-  | "coretime"
-  | "bulletin"
+  "relay" | "assetHub" | "collectives" | "bridgeHub" | "people" | "coretime" | "bulletin"
 
 interface ChainConfig {
   /** Display name, used as a label inside the unified view. */
@@ -34,6 +29,7 @@ interface ChainConfig {
   runtime: string
 }
 
+/** Name, parachain ID, endpoints, and runtime name of every chain in the system. */
 export const CHAINS: Record<ChainId, ChainConfig> = {
   relay: {
     name: "Relay Chain",
@@ -68,10 +64,7 @@ export const CHAINS: Record<ChainId, ChainConfig> = {
   bridgeHub: {
     name: "Bridge Hub",
     paraId: 1002,
-    rpcs: [
-      "wss://polkadot-bridge-hub-rpc.polkadot.io",
-      "wss://sys.ibp.network/bridgehub-polkadot",
-    ],
+    rpcs: ["wss://polkadot-bridge-hub-rpc.polkadot.io", "wss://sys.ibp.network/bridgehub-polkadot"],
     runtime: "bridge-hub-polkadot",
   },
   people: {
@@ -98,17 +91,24 @@ export const CHAINS: Record<ChainId, ChainConfig> = {
   },
 }
 
+/** Every chain identifier, in the order the chains are listed and upgraded. */
 export const CHAIN_IDS = Object.keys(CHAINS) as ChainId[]
 
+/** The system chain with the given parachain ID, if there is one. */
 export const chainByParaId = (paraId: number): ChainId | undefined =>
   CHAIN_IDS.find((id) => CHAINS[id].paraId === paraId)
 
 const DESCRIPTORS = { relay, assetHub, collectives, bridgeHub, people, coretime, bulletin }
 
-/** Block time of the clock each governance body counts in. */
+/**
+ * Block time of the Relay Chain, in milliseconds. Public referenda count Relay Chain blocks, even
+ * though they run on Asset Hub.
+ */
 export const RELAY_BLOCK_MS = 6_000
-// Fellowship referenda count Collectives blocks (e.g., the 30-day fast-promotion decision period
-// is 216,000 blocks), which are 12 seconds.
+/**
+ * Block time of Collectives, in milliseconds. Fellowship referenda count Collectives blocks (e.g.,
+ * the 30-day fast-promotion decision period is 216,000 blocks).
+ */
 export const COLLECTIVES_BLOCK_MS = 12_000
 
 const DECODE_TIMEOUT_MS = 20_000
@@ -129,7 +129,9 @@ export function getClient(chain: ChainId): PolkadotClient {
   return client
 }
 
+/** Typed API of Asset Hub, which hosts public referenda, preimages, and the whitelist. */
 export const assetHubApi = () => getClient("assetHub").getTypedApi(assetHub)
+/** Typed API of Collectives, which hosts the Fellowship and its referenda. */
 export const collectivesApi = () => getClient("collectives").getTypedApi(collectives)
 
 /** Decode SCALE-encoded call data against a chain's live runtime. */

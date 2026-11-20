@@ -10,6 +10,10 @@ import { fromHex, toHex } from "polkadot-api/utils"
 import { assetHubApi, CHAIN_IDS, CHAINS, type ChainId, collectivesApi, getClient } from "../chains"
 import { type CallNode, decodeCall, isCallTo, walk } from "./decode"
 
+/**
+ * The `opengov` WebAssembly module, once initialized. Passed in so that the browser and Node can
+ * each load it their own way.
+ */
 export type OpengovLib = typeof Opengov
 
 const REPO = "polkadot-fellows/runtimes"
@@ -19,17 +23,25 @@ const VERSION_TIMEOUT_MS = 15_000
 /** Fellowship rank needed to submit a Fellowship referendum (`SubmitOrigin` on Collectives). */
 export const FELLOWSHIP_SUBMIT_RANK = 3
 
+/** A file attached to a release. */
 export interface ReleaseAsset {
+  /** File name. */
   name: string
+  /** Size in bytes. */
   size: number
   /** "sha256:…" as reported by GitHub, when available. */
   digest: string | null
 }
 
+/** A release of the Fellowship runtimes repository. */
 export interface Release {
+  /** Tag, such as "v2.6.0". */
   tag: string
+  /** Page of the release on GitHub. */
   url: string
+  /** Time of publication, as an ISO 8601 string. */
   publishedAt: string
+  /** Files attached to the release, runtimes among them. */
   assets: ReleaseAsset[]
 }
 
@@ -58,11 +70,15 @@ export async function fetchRelease(tag: string | "latest"): Promise<Release> {
   }
 }
 
+/** What a release would do to one chain. */
 export interface ChainPlan {
+  /** The chain. */
   chain: ChainId
+  /** File name of the chain's runtime in the release. */
   file: string
   /** Null when the release has no runtime for this chain. */
   asset: ReleaseAsset | null
+  /** `spec_version` of the release, such as 2006000 for "v2.6.0". */
   newVersion: number
   /** `spec_version` of the live runtime, or null if the chain could not be reached. */
   currentVersion: number | null
@@ -74,7 +90,9 @@ const timeout = <T>(promise: Promise<T>, ms: number): Promise<T | null> =>
 async function liveSpecVersion(chain: ChainId): Promise<number | null> {
   try {
     const version = await timeout(
-      getClient(chain).getUnsafeApi().constants.System.Version() as Promise<{ spec_version: number }>,
+      getClient(chain).getUnsafeApi().constants.System.Version() as Promise<{
+        spec_version: number
+      }>,
       VERSION_TIMEOUT_MS,
     )
     return version?.spec_version ?? null
@@ -104,6 +122,10 @@ export async function planRelease(lib: OpengovLib, release: Release): Promise<Ch
 /** How to read a release asset. In the browser this goes through the stateless proxy. */
 export type FetchAsset = (tag: string, file: string) => Promise<Uint8Array>
 
+/**
+ * Read a release asset through the `/release-asset` proxy, since GitHub does not allow cross-origin
+ * downloads.
+ */
 export const fetchAssetViaProxy: FetchAsset = async (tag, file) => {
   const response = await fetch(`/release-asset/${tag}/${file}`)
   if (!response.ok) {
@@ -118,13 +140,20 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(digest)).slice(2)
 }
 
+/**
+ * An upgrade proposal and its referenda, built from a release and checked against the live
+ * runtimes.
+ */
 export interface BuiltUpgrade {
+  /** Tag of the release the runtimes come from. */
   tag: string
+  /** The chains being upgraded and the hash of each new runtime. */
   runtimes: { chain: ChainId; codeHash: string }[]
   /** The Asset Hub call that the Fellowship whitelists and the public referendum dispatches. */
   proposal: Opengov.NetworkCall
   /** The proposal, decoded against the live runtimes. */
   tree: CallNode
+  /** The referendum submissions and preimages, as `opengov` built them. */
   calls: Opengov.ReferendumCalls
 }
 
@@ -194,8 +223,12 @@ export async function buildUpgrade(
   // Check 2: the Fellowship referendum whitelists this proposal on Asset Hub.
   if (!calls.fellowship_referendum || calls.whitelisted_call_hash !== proposal.hash)
     throw new Error("The generated Fellowship referendum does not whitelist the proposal.")
-  const submit = await decodeCall({ id: "collectives" }, fromHex(calls.fellowship_referendum.encoded))
-  // What the Fellowship votes on is inside the submission: inline, or as the preimage noted with it.
+  const submit = await decodeCall(
+    { id: "collectives" },
+    fromHex(calls.fellowship_referendum.encoded),
+  )
+  // What the Fellowship votes on is inside the submission: inline, or as the preimage noted with
+  // it.
   const bounded = (submit.args as { proposal?: { type: string; value: unknown } }).proposal
   let voted: Uint8Array | null = null
   if (bounded?.type === "Inline" && bounded.value instanceof Uint8Array) voted = bounded.value
@@ -214,7 +247,9 @@ export async function buildUpgrade(
         hexArg(n, "call_hash") === proposal.hash,
     )
   if (!isCallTo(submit, "FellowshipReferenda", "submit") || !whitelists)
-    throw new Error("The generated Fellowship referendum does not decode as expected on Collectives.")
+    throw new Error(
+      "The generated Fellowship referendum does not decode as expected on Collectives.",
+    )
 
   return { tag: release.tag, runtimes, proposal, tree, calls }
 }

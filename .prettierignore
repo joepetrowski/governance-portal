@@ -1,0 +1,7 @@
+dist
+.papi
+.netlify
+package-lock.json
+public
+docs
+*.md

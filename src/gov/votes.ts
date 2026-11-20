@@ -5,14 +5,18 @@ import { assetHubApi, collectivesApi, RELAY_BLOCK_MS } from "../chains"
 import { formatDot } from "../ui/format"
 import type { Stage } from "./load"
 
+/** The direction of a vote. The Fellowship cannot abstain. */
 export type Direction = "aye" | "nay" | "abstain"
 
+/** What an account has done on one referendum: nothing, voted, or delegated the track. */
 export type VoteStatus =
   | { type: "none" }
   | { type: "voted"; direction: Direction | "split"; detail: string }
   | { type: "delegating"; target: string }
 
+/** What governance needs to know about one wallet account. */
 export interface AccountStatus {
+  /** The account. */
   address: string
   /** Fellowship rank, or null if not a member. */
   rank: number | null
@@ -24,12 +28,14 @@ export interface AccountStatus {
   votes: Record<string, VoteStatus>
 }
 
+/** Key of a referendum that is unique across both bodies, such as "open-1973". */
 export const stageKey = (stage: Pick<Stage, "body" | "index">) => `${stage.body}-${stage.index}`
 
 /** Conviction multipliers by index. Index 0 is 0.1x with no lock. */
 export const CONVICTIONS = ["0.1x", "1x", "2x", "3x", "4x", "5x", "6x"]
 const AYE_BIT = 0x80
 
+/** Summarize a conviction vote as a direction and a line of text. */
 export function describeOpenVote(vote: ConvictionVotingVoteAccountVote): VoteStatus {
   switch (vote.type) {
     case "Standard": {
@@ -54,12 +60,14 @@ export function describeOpenVote(vote: ConvictionVotingVoteAccountVote): VoteSta
       return {
         type: "voted",
         direction: "split",
-        detail: `Split: ${formatDot(aye)} aye, ${formatDot(nay)} nay, ${formatDot(abstain)} abstain`,
+        detail:
+          `Split: ${formatDot(aye)} aye, ${formatDot(nay)} nay, ` + `${formatDot(abstain)} abstain`,
       }
     }
   }
 }
 
+/** Read an account's Fellowship rank, balances, and votes on the given referenda. */
 export async function loadAccountStatus(address: string, stages: Stage[]): Promise<AccountStatus> {
   const assetHub = assetHubApi()
   const collectives = collectivesApi()
@@ -73,7 +81,9 @@ export async function loadAccountStatus(address: string, stages: Stage[]): Promi
     collectives.query.FellowshipCollective.Members.getValue(address),
     Promise.all(tracks.map((t) => assetHub.query.ConvictionVoting.VotingFor.getValue(address, t))),
     Promise.all(
-      fellowship.map((s) => collectives.query.FellowshipCollective.Voting.getValue(s.index, address)),
+      fellowship.map((s) =>
+        collectives.query.FellowshipCollective.Voting.getValue(s.index, address),
+      ),
     ),
   ])
 
@@ -114,13 +124,17 @@ export async function loadLockDays(): Promise<number[]> {
   return CONVICTIONS.map((_, i) => (i === 0 ? 0 : baseDays * 2 ** (i - 1)))
 }
 
+/** A vote to cast on a public referendum. */
 export interface OpenVote {
+  /** Aye, nay, or abstain. */
   direction: Direction
+  /** Balance to vote with, in planck. */
   amount: bigint
   /** Index into `CONVICTIONS`. Ignored when abstaining, which carries no conviction. */
   conviction: number
 }
 
+/** The transaction that casts or replaces a vote on a public referendum, on Asset Hub. */
 export function openVoteTx(stage: Stage, vote: OpenVote) {
   const accountVote =
     vote.direction === "abstain"
@@ -132,6 +146,7 @@ export function openVoteTx(stage: Stage, vote: OpenVote) {
   return assetHubApi().tx.ConvictionVoting.vote({ poll_index: stage.index, vote: accountVote })
 }
 
+/** The transaction that casts or replaces a Fellowship vote, on Collectives. */
 export function fellowshipVoteTx(stage: Stage, aye: boolean) {
   return collectivesApi().tx.FellowshipCollective.vote({ poll: stage.index, aye })
 }

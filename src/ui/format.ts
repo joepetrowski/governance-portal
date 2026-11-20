@@ -1,3 +1,4 @@
+/** A fraction in [0, 1] as a percentage, with more digits the smaller it is. */
 export const percent = (fraction: number) => {
   const pct = fraction * 100
   if (pct === 0 || pct >= 10) return `${pct.toFixed(1)}%`
@@ -25,7 +26,20 @@ export const formatTime = (timestamp: number) =>
     hourCycle: "h23",
   })
 
-const AP_MONTHS = ["Jan.", "Feb.", "March", "April", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."]
+const AP_MONTHS = [
+  "Jan.",
+  "Feb.",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "Aug.",
+  "Sept.",
+  "Oct.",
+  "Nov.",
+  "Dec.",
+]
 
 /** A date and time such as "Dec. 1, 14:05", with the year when it is not the current one. */
 export function formatDateTime(timestamp: number): string {
@@ -38,6 +52,7 @@ export function formatDateTime(timestamp: number): string {
 export const formatList = (items: string[]) =>
   new Intl.ListFormat("en-US", { type: "conjunction" }).format(items)
 
+/** Decimal places of DOT: 1 DOT is 10^10 planck. */
 export const DOT_DECIMALS = 10
 const PLANCK_PER_DOT = 10n ** BigInt(DOT_DECIMALS)
 
@@ -55,6 +70,9 @@ export function parseDot(input: string): bigint | null {
   return BigInt(whole) * PLANCK_PER_DOT + BigInt(fraction.padEnd(DOT_DECIMALS, "0"))
 }
 
+/** An address shortened to its first and last six characters. */
 export const shortAddress = (address: string) => `${address.slice(0, 6)}…${address.slice(-6)}`
 
-export const shortHex = (hex: string) => (hex.length > 22 ? `${hex.slice(0, 10)}…${hex.slice(-8)}` : hex)
+/** A hex string shortened in the middle, if it is long. */
+export const shortHex = (hex: string) =>
+  hex.length > 22 ? `${hex.slice(0, 10)}…${hex.slice(-8)}` : hex

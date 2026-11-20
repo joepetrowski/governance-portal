@@ -15,29 +15,41 @@ export const MAX_REMOVALS = 25
 const LOCK_PERIODS = [0, 1, 2, 4, 8, 16, 32]
 const AYE_BIT = 0x80
 
+/** A vote that an account still has on record for a public referendum that has ended. */
 export interface StaleVote {
+  /** Referendum index. */
   index: number
+  /** ID of the track the referendum ran on, which is also the class of the lock. */
   trackId: number
+  /** Name of the track. */
   track: string
   /** For example, "Aye with 10 DOT at 2x". */
   detail: string
+  /** How the referendum ended. "Unknown" when its record is no longer in state. */
   outcome: "Approved" | "Rejected" | "Canceled" | "Timed out" | "Killed" | "Unknown"
   /** Relay Chain block until which the vote's balance stays locked, or null if it is free now. */
   lockedUntil: number | null
 }
 
+/**
+ * Everything one account can clear now: its stale votes and the voting locks that can be lowered.
+ */
 export interface Cleanup {
+  /** The account. */
   address: string
+  /** Votes on finished referenda, newest first. */
   stale: StaleVote[]
   /** Tracks whose lock can be lowered now, including those with stale votes. */
   tracks: number[]
+  /** Balance locked by voting at present, which is the largest lock over all tracks. */
   lockedNow: bigint
   /** The lock that remains once the votes are removed and the tracks unlocked. */
   lockedAfter: bigint
   /** When the next part of the remaining lock expires, as a Relay Chain block. */
   nextUnlock: number | null
-  /** Relay Chain block and wall-clock time at which this was read. */
+  /** Relay Chain block at which this was read. */
   now: number
+  /** Wall-clock time at which this was read, in milliseconds. */
   loadedAt: number
 }
 
@@ -54,6 +66,10 @@ const voteBalance = (vote: ConvictionVotingVoteAccountVote): bigint => {
 
 const max = (values: bigint[]) => values.reduce((a, b) => (b > a ? b : a), 0n)
 
+/**
+ * Read an account's stale votes and voting locks from Asset Hub, and work out what clearing them
+ * would unlock.
+ */
 export async function loadCleanup(address: string): Promise<Cleanup> {
   const api = assetHubApi()
   const [entries, classLocks, now, period, trackList] = await Promise.all([
@@ -69,10 +85,14 @@ export async function loadCleanup(address: string): Promise<Cleanup> {
 
   const indices = [
     ...new Set(
-      entries.flatMap(({ value }) => (value.type === "Casting" ? value.value.votes.map(([i]) => i) : [])),
+      entries.flatMap(({ value }) =>
+        value.type === "Casting" ? value.value.votes.map(([i]) => i) : [],
+      ),
     ),
   ]
-  const infos = await api.query.Referenda.ReferendumInfoFor.getValues(indices.map((i) => [i] as [number]))
+  const infos = await api.query.Referenda.ReferendumInfoFor.getValues(
+    indices.map((i) => [i] as [number]),
+  )
   const infoOf = new Map(indices.map((index, i) => [index, infos[i]]))
 
   const currentLock = new Map(classLocks)
@@ -164,9 +184,14 @@ export function cleanupTx(cleanup: Cleanup) {
   ])
   return api.tx.Utility.batch_all({
     calls: [
-      ...removals.map((v) => api.tx.ConvictionVoting.remove_vote({ class: v.trackId, index: v.index }).decodedCall),
+      ...removals.map(
+        (v) =>
+          api.tx.ConvictionVoting.remove_vote({ class: v.trackId, index: v.index }).decodedCall,
+      ),
       ...[...tracks].map(
-        (t) => api.tx.ConvictionVoting.unlock({ class: t, target: MultiAddress.Id(cleanup.address) }).decodedCall,
+        (t) =>
+          api.tx.ConvictionVoting.unlock({ class: t, target: MultiAddress.Id(cleanup.address) })
+            .decodedCall,
       ),
     ],
   })

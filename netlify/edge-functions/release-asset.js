@@ -10,9 +10,12 @@ const FILE = /^[a-z0-9-]+_runtime-v\d+\.compact\.compressed\.wasm$/
 
 export default async (_request, context) => {
   const { tag, file } = context.params
-  if (!TAG.test(tag) || !FILE.test(file)) return new Response("Not a runtime release asset", { status: 400 })
+  if (!TAG.test(tag) || !FILE.test(file))
+    return new Response("Not a runtime release asset", { status: 400 })
 
-  const upstream = await fetch(`https://github.com/polkadot-fellows/runtimes/releases/download/${tag}/${file}`)
+  const upstream = await fetch(
+    `https://github.com/polkadot-fellows/runtimes/releases/download/${tag}/${file}`,
+  )
   // Always 502, also for a missing asset: on a 404, Netlify would retry the path as a page.
   if (!upstream.ok) return new Response(`GitHub answered ${upstream.status}`, { status: 502 })
 
@@ -24,4 +27,5 @@ export default async (_request, context) => {
   })
 }
 
+/** Route of this edge function, as Netlify reads it. */
 export const config = { path: "/release-asset/:tag/:file" }

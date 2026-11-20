@@ -16,7 +16,12 @@ import { choice, TxStatus, useSubmit } from "./tx"
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
 
-function FellowshipVote(props: { stage: Stage; account: Account; status: AccountStatus; onVoted: () => void }) {
+function FellowshipVote(props: {
+  stage: Stage
+  account: Account
+  status: AccountStatus
+  onVoted: () => void
+}) {
   const { stage, account, status } = props
   const { state, busy, submit } = useSubmit(props.onVoted)
   const minRank = stage.minRank ?? 0
@@ -33,11 +38,23 @@ function FellowshipVote(props: { stage: Stage; account: Account; status: Account
   return (
     <div>
       <div className="flex items-center gap-2">
-        <span className="text-sm text-zinc-600 dark:text-zinc-400">Vote as rank {status.rank}:</span>
-        <button type="button" disabled={busy} className={choice(current === "aye")} onClick={() => submit(fellowshipVoteTx(stage, true), account)}>
+        <span className="text-sm text-zinc-600 dark:text-zinc-400">
+          Vote as rank {status.rank}:
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          className={choice(current === "aye")}
+          onClick={() => submit(fellowshipVoteTx(stage, true), account)}
+        >
           Aye
         </button>
-        <button type="button" disabled={busy} className={choice(current === "nay")} onClick={() => submit(fellowshipVoteTx(stage, false), account)}>
+        <button
+          type="button"
+          disabled={busy}
+          className={choice(current === "nay")}
+          onClick={() => submit(fellowshipVoteTx(stage, false), account)}
+        >
           Nay
         </button>
       </div>
@@ -48,7 +65,12 @@ function FellowshipVote(props: { stage: Stage; account: Account; status: Account
 
 let lockDaysCache: Promise<number[]> | undefined
 
-function OpenVote(props: { stage: Stage; account: Account; status: AccountStatus; onVoted: () => void }) {
+function OpenVote(props: {
+  stage: Stage
+  account: Account
+  status: AccountStatus
+  onVoted: () => void
+}) {
   const { stage, account, status } = props
   const { state, busy, submit } = useSubmit(props.onVoted)
   // Nothing is selected until the user picks a direction, unless the account has already voted,
@@ -83,12 +105,18 @@ function OpenVote(props: { stage: Stage; account: Account; status: AccountStatus
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready && direction) submit(openVoteTx(stage, { direction, amount: parsed, conviction }), account)
+        if (ready && direction)
+          submit(openVoteTx(stage, { direction, amount: parsed, conviction }), account)
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
         {(["aye", "nay", "abstain"] as const).map((d) => (
-          <button key={d} type="button" className={choice(direction === d)} onClick={() => setChosen(d)}>
+          <button
+            key={d}
+            type="button"
+            className={choice(direction === d)}
+            onClick={() => setChosen(d)}
+          >
             {d[0].toUpperCase() + d.slice(1)}
           </button>
         ))}
@@ -108,7 +136,11 @@ function OpenVote(props: { stage: Stage; account: Account; status: AccountStatus
         {direction !== "abstain" && (
           <label className="text-sm">
             <span className="sr-only">Conviction</span>
-            <select className={field} value={conviction} onChange={(e) => setConviction(Number(e.target.value))}>
+            <select
+              className={field}
+              value={conviction}
+              onChange={(e) => setConviction(Number(e.target.value))}
+            >
               {CONVICTIONS.map((label, i) => (
                 <option key={label} value={i}>
                   {label}
@@ -147,7 +179,9 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
     <div className="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
       {cast.length === 0 ? (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {statuses.length === 1 ? "Your account has not voted." : "None of your accounts have voted."}
+          {statuses.length === 1
+            ? "Your account has not voted."
+            : "None of your accounts have voted."}
         </p>
       ) : (
         <ul className="space-y-0.5 text-sm">
@@ -155,7 +189,8 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
             <li key={status.address}>
               <span className="font-medium">{nameOf(status.address)}:</span>{" "}
               {vote.type === "voted" && vote.detail}
-              {vote.type === "delegating" && `Delegated to ${shortAddress(vote.target)} on this track`}
+              {vote.type === "delegating" &&
+                `Delegated to ${shortAddress(vote.target)} on this track`}
             </li>
           ))}
         </ul>
@@ -163,9 +198,19 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
       {wallet.selected && selected && (
         <div className="mt-3">
           {stage.body === "fellowship" ? (
-            <FellowshipVote stage={stage} account={wallet.selected} status={selected} onVoted={props.onVoted} />
+            <FellowshipVote
+              stage={stage}
+              account={wallet.selected}
+              status={selected}
+              onVoted={props.onVoted}
+            />
           ) : (
-            <OpenVote stage={stage} account={wallet.selected} status={selected} onVoted={props.onVoted} />
+            <OpenVote
+              stage={stage}
+              account={wallet.selected}
+              status={selected}
+              onVoted={props.onVoted}
+            />
           )}
         </div>
       )}

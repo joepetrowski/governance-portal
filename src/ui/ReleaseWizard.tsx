@@ -104,11 +104,14 @@ function Result(props: {
     : existing?.whitelist?.whitelisted
       ? "The Fellowship has already whitelisted this call."
       : status && (status.rank ?? -1) < FELLOWSHIP_SUBMIT_RANK
-        ? `Needs a Fellowship member of rank ${FELLOWSHIP_SUBMIT_RANK} or higher. The selected account ${
-            status.rank === null ? "is not a member" : `has rank ${status.rank}`
-          }.`
+        ? `Needs a Fellowship member of rank ${FELLOWSHIP_SUBMIT_RANK} or higher. ` +
+          (status.rank === null
+            ? "The selected account is not a member."
+            : `The selected account has rank ${status.rank}.`)
         : null
-  const publicBlocked = existing?.open ? `Already open as public referendum #${existing.open.index}.` : null
+  const publicBlocked = existing?.open
+    ? `Already open as public referendum #${existing.open.index}.`
+    : null
 
   return (
     <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
@@ -130,7 +133,10 @@ function Result(props: {
         />
         <SubmitStep
           title="2. Public referendum"
-          detail="On Asset Hub, on the Whitelisted Caller track. Notes the preimage if it is not on chain yet."
+          detail={
+            "On Asset Hub, on the Whitelisted Caller track. " +
+            "Notes the preimage if it is not on chain yet."
+          }
           blocked={publicBlocked}
           makeTx={() => publicSubmitTx(built)}
           onSubmitted={props.onSubmitted}
@@ -169,7 +175,11 @@ function Result(props: {
 }
 
 /** From a Fellowship runtimes release to the referenda that enact it. */
-export function ReleaseWizard(props: { proposals: Proposal[]; statuses: AccountStatus[]; onSubmitted: () => void }) {
+export function ReleaseWizard(props: {
+  proposals: Proposal[]
+  statuses: AccountStatus[]
+  onSubmitted: () => void
+}) {
   const [input, setInput] = useState("")
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [selected, setSelected] = useState<Set<ChainId>>(new Set())
@@ -203,8 +213,12 @@ export function ReleaseWizard(props: { proposals: Proposal[]; statuses: AccountS
     run("Downloading runtimes…", async () => {
       setBuilt(null)
       const plans = current.plans.filter((p) => selected.has(p.chain))
-      const result = await buildUpgrade(await loadLib(), current.release, plans, fetchAssetViaProxy, (done, total) =>
-        setBusy(`Downloading and hashing runtimes: ${done} of ${total}…`),
+      const result = await buildUpgrade(
+        await loadLib(),
+        current.release,
+        plans,
+        fetchAssetViaProxy,
+        (done, total) => setBusy(`Downloading and hashing runtimes: ${done} of ${total}…`),
       )
       setBuilt(result)
     })
@@ -242,18 +256,30 @@ export function ReleaseWizard(props: { proposals: Proposal[]; statuses: AccountS
         <button type="submit" disabled={!tag || busy !== null} className={choice(true)}>
           Load release
         </button>
-        <button type="button" disabled={busy !== null} className={choice(false)} onClick={() => void load("latest")}>
+        <button
+          type="button"
+          disabled={busy !== null}
+          className={choice(false)}
+          onClick={() => void load("latest")}
+        >
           Use latest
         </button>
       </form>
       {input !== "" && !tag && (
-        <p className="mt-1 text-xs text-zinc-500">Enter a tag such as v2.6.0, or the URL of the release.</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Enter a tag such as v2.6.0, or the URL of the release.
+        </p>
       )}
 
       {loaded && (
         <div className="mt-4">
           <p className="text-sm">
-            <a className="font-medium underline" href={loaded.release.url} target="_blank" rel="noreferrer">
+            <a
+              className="font-medium underline"
+              href={loaded.release.url}
+              target="_blank"
+              rel="noreferrer"
+            >
               Release {loaded.release.tag}
             </a>
             <span className="text-zinc-500"> · choose the chains to upgrade</span>
@@ -288,7 +314,12 @@ export function ReleaseWizard(props: { proposals: Proposal[]; statuses: AccountS
       {busy && <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">{busy}</p>}
       {error && <p className="mt-3 text-sm text-red-700 dark:text-red-400">{error}</p>}
       {built && (
-        <Result built={built} proposals={props.proposals} statuses={props.statuses} onSubmitted={props.onSubmitted} />
+        <Result
+          built={built}
+          proposals={props.proposals}
+          statuses={props.statuses}
+          onSubmitted={props.onSubmitted}
+        />
       )}
     </section>
   )

@@ -25,7 +25,10 @@ for (const address of addresses) {
   const tx = cleanupTx(cleanup)
   const data = await tx.getEncodedData()
   console.log("    call", toHex(data).slice(0, 80), "…")
-  const info = await assetHubApi().apis.TransactionPaymentCallApi.query_call_info(tx.decodedCall, data.length)
+  const info = await assetHubApi().apis.TransactionPaymentCallApi.query_call_info(
+    tx.decodedCall,
+    data.length,
+  )
   console.log("    fee and weight", show(info))
 }
 process.exit(0)

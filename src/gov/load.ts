@@ -17,6 +17,7 @@ import { blake2Hex, type CallNode, chainLabel, decodeCall, isCallTo, walk } from
 /** Public tracks shown for now: root, whitelisted_caller, staking_admin. */
 const OPEN_TRACKS = new Set([0, 1, 10])
 
+/** Where a referendum is in its life cycle. Blocks are on the clock of its stage. */
 export type StageStatus =
   | { phase: "awaitingDeposit" }
   | { phase: "preparing"; endsAt: number }
@@ -24,44 +25,73 @@ export type StageStatus =
   | { phase: "deciding"; since: number; endsAt: number; passesAt: number | null }
   | { phase: "confirming"; since: number; endsAt: number }
 
+/** One referendum, of the Fellowship or the public, as a step in a proposal's path to enactment. */
 export interface Stage {
+  /** Who votes: the Fellowship on Collectives, or token holders on Asset Hub. */
   body: "fellowship" | "open"
+  /** Referendum index within its body. */
   index: number
+  /** Name of the track. */
   track: string
+  /** ID of the track. */
   trackId: number
   /** Fellowship only: the lowest rank that may vote. */
   minRank?: number
+  /** Account that submitted the referendum. */
   submitter: string
+  /** Block at which the referendum was submitted. */
   submitted: number
+  /** Current phase and its deadlines. */
   status: StageStatus
-  /** Fractions in [0, 1]. `current` is null when nobody has voted. */
+  /** Share of ayes among ayes and nays, as fractions in [0, 1]. Null when nobody has voted. */
   approval: { current: number | null; required: number }
+  /**
+   * Share of the electorate that voted aye, as fractions in [0, 1]. In public referenda, votes to
+   * abstain count as well.
+   */
   support: { current: number; required: number }
+  /** Whether approval and support both meet their thresholds now. */
   passing: boolean
-  /** Human-readable vote totals. */
+  /** Human-readable total of aye votes. */
   ayes: string
+  /** Human-readable total of nay votes. */
   nays: string
-  /** The clock this stage counts in. */
+  /** Current block on the clock this stage counts in. */
   now: number
+  /** Block time of that clock, in milliseconds. */
   blockMs: number
   /** The decision deposit the track requires, and who has placed it, if anyone. */
   deposit: { required: bigint; placed: { who: string; amount: bigint } | null }
+  /** The call the referendum would dispatch, or null if its preimage is not available. */
   call: CallNode | null
 }
 
+/** A runtime upgrade that a proposal authorizes on one chain. */
 export interface Upgrade {
+  /** Display name of the chain. */
   chain: string
+  /** Hash of the new runtime code, as hex. */
   codeHash: string
 }
 
+/**
+ * One thing being decided, shown as one card. A whitelisted proposal joins the Fellowship
+ * referendum that whitelists a call with the public referendum that dispatches it.
+ */
 export interface Proposal {
+  /** Stable key built from the referendum indexes, such as "open-1973+fellowship-681". */
   id: string
+  /** What the proposal does, in a line. Backticks mark code. */
   title: string
+  /** An upgrade, another whitelisted call, or anything else. */
   kind: "upgrade" | "whitelist" | "other"
+  /** The Fellowship referendum, if one is open. */
   fellowship?: Stage
+  /** The public referendum, if one is open. */
   open?: Stage
   /** Present when the proposal dispatches (or whitelists) a call through the whitelist. */
   whitelist?: { hash: string; whitelisted: boolean }
+  /** Runtime upgrades the proposal authorizes. Empty if it is not an upgrade. */
   upgrades: Upgrade[]
   /** Chains with a call that could not be decoded, so its contents are unknown. */
   undecoded: string[]
@@ -69,8 +99,11 @@ export interface Proposal {
   call: CallNode | null
 }
 
+/** All open proposals as of one read of chain state. */
 export interface Snapshot {
+  /** Proposals, with upgrades and other whitelisted calls first. */
   proposals: Proposal[]
+  /** Wall-clock time of the read, in milliseconds. */
   loadedAt: number
 }
 
@@ -113,7 +146,11 @@ function stageStatus(info: Ongoing, track: TrackInfo, now: number, a: number | n
   if (info.deciding) {
     const { since, confirming } = info.deciding
     if (confirming !== undefined)
-      return { phase: "confirming", since: confirming - track.confirm_period, endsAt: confirming } as const
+      return {
+        phase: "confirming",
+        since: confirming - track.confirm_period,
+        endsAt: confirming,
+      } as const
     const xa = a === null ? null : delay(track.min_approval, a)
     const xs = delay(track.min_support, s)
     const passesAt =
@@ -165,7 +202,8 @@ function buildStage(
   }
 }
 
-const ratio = (num: bigint, den: bigint) => (den === 0n ? 0 : Number((num * 1_000_000_000n) / den) / 1e9)
+const ratio = (num: bigint, den: bigint) =>
+  den === 0n ? 0 : Number((num * 1_000_000_000n) / den) / 1e9
 
 async function loadOpenStages(): Promise<Stage[]> {
   const api = assetHubApi()
@@ -313,7 +351,8 @@ function describe(call: CallNode | null): string {
     const targets = [...new Set(all.filter((n) => n.undecoded).map((n) => chainLabel(n.chain)))]
     return `Call on ${formatList(targets)}`
   }
-  const names = [...new Set(leaves.map((n) => `${n.pallet}.${n.name}`))]
+  // Backticks mark code, which the interface shows preformatted.
+  const names = [...new Set(leaves.map((n) => `\`${n.pallet}.${n.name}\``))]
   const where = [...new Set(leaves.map((n) => chainLabel(n.chain)))]
   const what = names.length > 2 ? [...names.slice(0, 2), `${names.length - 2} more`] : names
   return `${formatList(what)} on ${formatList(where)}`
@@ -355,6 +394,10 @@ function makeProposal(parts: {
   }
 }
 
+/**
+ * Read every open Fellowship referendum and the public referenda on the shown tracks, decode their
+ * calls, and join them into proposals.
+ */
 export async function loadSnapshot(): Promise<Snapshot> {
   const [open, fellowship] = await Promise.all([loadOpenStages(), loadFellowshipStages()])
   const api = assetHubApi()

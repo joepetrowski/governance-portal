@@ -29,7 +29,12 @@ function dispatchErrorName(error: unknown): string {
   return names.filter((n) => n !== "Module").join(".") || "unknown error"
 }
 
+/**
+ * The part of a `polkadot-api` transaction that submitting needs, so that transactions of any chain
+ * fit.
+ */
 export interface Submittable {
+  /** Sign with the account's signer, submit, and report each step up to finality. */
   createSubmitAndWatch: (creator: Account["txCreator"]) => {
     subscribe: (observer: {
       next: (event: { type: string; ok?: boolean; dispatchError?: unknown }) => void
@@ -38,6 +43,10 @@ export interface Submittable {
   }
 }
 
+/**
+ * State and trigger for one transaction: sign with the account, then follow it to finality.
+ * `onIncluded` runs when it is in a block and again when it is finalized.
+ */
 export function useSubmit(onIncluded: () => void) {
   const [state, setState] = useState<TxState>({ step: "idle" })
   const busy = state.step === "signing" || state.step === "broadcast" || state.step === "included"
@@ -49,18 +58,25 @@ export function useSubmit(onIncluded: () => void) {
         if (event.type === "broadcasted") setState({ step: "broadcast" })
         if (event.type !== "inBestBlock" && event.type !== "finalized") return
         if (event.ok === false) {
-          setState({ step: "failed", reason: `Rejected by the chain: ${dispatchErrorName(event.dispatchError)}` })
+          setState({
+            step: "failed",
+            reason: `Rejected by the chain: ${dispatchErrorName(event.dispatchError)}`,
+          })
           return
         }
         setState({ step: event.type === "finalized" ? "finalized" : "included" })
         onIncluded()
       },
-      error: (e) => setState({ step: "failed", reason: e instanceof Error ? e.message : String(e) }),
+      error: (e) =>
+        setState({ step: "failed", reason: e instanceof Error ? e.message : String(e) }),
     })
   }
   return { state, busy, submit }
 }
 
+/**
+ * The progress or failure of a transaction, as a line of text. Empty before the first submission.
+ */
 export function TxStatus({ state }: { state: TxState }) {
   if (state.step === "idle") return null
   if (state.step === "failed")
@@ -68,6 +84,7 @@ export function TxStatus({ state }: { state: TxState }) {
   return <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{TX_LABEL[state.step]}</p>
 }
 
+/** Class names of a button that is one of a set of choices, filled when it is the active one. */
 export const choice = (active: boolean) =>
   `rounded-md border px-3 py-1 text-sm font-medium disabled:opacity-50 ${
     active

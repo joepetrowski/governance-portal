@@ -5,7 +5,11 @@ import { formatDot } from "./format"
 import { choice, TxStatus, useSubmit } from "./tx"
 
 /** Places a missing decision deposit from the selected account. Any account may place it. */
-export function DepositButton(props: { stage: Stage; statuses: AccountStatus[]; onPlaced: () => void }) {
+export function DepositButton(props: {
+  stage: Stage
+  statuses: AccountStatus[]
+  onPlaced: () => void
+}) {
   const { stage } = props
   const wallet = useWallet()
   const { state, busy, submit } = useSubmit(props.onPlaced)
