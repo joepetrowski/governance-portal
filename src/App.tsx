@@ -1,6 +1,7 @@
 import { CleanupPanel, needsCleanup } from "./ui/CleanupPanel"
 import { formatTime } from "./ui/format"
 import { ProposalCard } from "./ui/ProposalCard"
+import { ReleaseWizard } from "./ui/ReleaseWizard"
 import { WalletButton } from "./ui/WalletButton"
 import { useAccountStatuses } from "./useAccountStatuses"
 import { useCleanups } from "./useCleanups"
@@ -40,6 +41,8 @@ export default function App() {
       )}
 
       {!snapshot && !error && <p className="text-sm text-zinc-500">Reading chain state…</p>}
+
+      {snapshot && <ReleaseWizard proposals={snapshot.proposals} statuses={statuses} onSubmitted={refresh} />}
 
       <CleanupPanel cleanups={cleanups} onCleaned={refresh} />
 

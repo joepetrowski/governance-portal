@@ -14,6 +14,7 @@
   "dependencies": {
     "@polkadot-api/descriptors": "file:.papi/descriptors",
     "@polkadot-api/substrate-bindings": "^0.21.2",
+    "opengov": "https://github.com/joepetrowski/opengov-cli/releases/download/v0.2.0/opengov-0.2.0.tgz",
     "polkadot-api": "^3.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
