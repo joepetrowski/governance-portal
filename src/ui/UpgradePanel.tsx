@@ -8,7 +8,8 @@ import { choice, TxStatus, useSubmit } from "./tx"
 /** One chain's upgrade, with the button that applies it when it is waiting for that. */
 function UpgradeRow(props: {
   upgrade: ChainUpgrade
-  releaseHashes: ReleaseHashes
+  /** Runtime hashes of recent releases, or null while they are not known. */
+  releaseHashes: ReleaseHashes | null
   loadedAt: number
   onApplied: () => void
 }) {
@@ -17,14 +18,14 @@ function UpgradeRow(props: {
   const [preparing, setPreparing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { name, network } = CHAINS[upgrade.chain]
-  const tag = props.releaseHashes[upgrade.codeHash]
+  const tag = props.releaseHashes?.[upgrade.codeHash]
   const what = tag ? `version ${tag.slice(1)}` : `runtime ${shortHex(upgrade.codeHash)}`
 
   const apply = async () => {
     setPreparing(true)
     setError(null)
     try {
-      follow(await applyUpgrade(upgrade, props.releaseHashes))
+      follow(await applyUpgrade(upgrade, props.releaseHashes ?? {}))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -36,7 +37,10 @@ function UpgradeRow(props: {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="text-sm">
           <p className="font-medium">
-            {name} <span className="font-normal text-zinc-500">on {NETWORKS[network].name}</span>
+            {name}{" "}
+            <span className="font-normal text-zinc-500 dark:text-zinc-400">
+              on {NETWORKS[network].name}
+            </span>
           </p>
           <p className="mt-1 text-zinc-600 dark:text-zinc-400" title={upgrade.codeHash}>
             {upgrade.state === "authorized"
@@ -49,7 +53,9 @@ function UpgradeRow(props: {
                     )}.`)}
             {upgrade.state === "authorized" &&
               !tag &&
-              " This runtime is not in a recent release, so it cannot be applied from here."}
+              (props.releaseHashes
+                ? " This runtime is not in a recent release, so it cannot be applied from here."
+                : " The releases could not be read yet, so it cannot be applied from here for now.")}
           </p>
         </div>
         {upgrade.state === "authorized" && tag && (
@@ -63,7 +69,9 @@ function UpgradeRow(props: {
               Apply upgrade
             </button>
             {preparing && (
-              <p className="mt-2 text-xs text-zinc-500">Downloading and checking the runtime…</p>
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Downloading and checking the runtime…
+              </p>
             )}
             {error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">{error}</p>}
             <TxStatus state={state} />
@@ -80,7 +88,8 @@ function UpgradeRow(props: {
  */
 export function UpgradePanel(props: {
   upgrades: ChainUpgrade[]
-  releaseHashes: ReleaseHashes
+  /** Runtime hashes of recent releases, or null while they are not known. */
+  releaseHashes: ReleaseHashes | null
   /** Wall-clock time at which the upgrades were read, in milliseconds. */
   loadedAt: number
   onApplied: () => void

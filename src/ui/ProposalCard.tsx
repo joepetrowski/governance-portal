@@ -12,13 +12,15 @@ import { WhitelistButton } from "./WhitelistButton"
 
 interface Props {
   proposal: Proposal
+  /** Whether some open Fellowship referendum could not be read, so that pairing is uncertain. */
+  fellowshipUncertain: boolean
   /** Runtime hashes of recent releases, by which an upgrade's version is recognized. */
   releaseHashes: ReleaseHashes
   statuses: AccountStatus[]
   onVoted: () => void
 }
 
-function FellowshipStage({ proposal, statuses, onVoted }: Props) {
+function FellowshipStage({ proposal, fellowshipUncertain, statuses, onVoted }: Props) {
   if (proposal.fellowship)
     return (
       <StagePanel
@@ -31,9 +33,18 @@ function FellowshipStage({ proposal, statuses, onVoted }: Props) {
       </StagePanel>
     )
   if (!proposal.whitelist) return null
-  return proposal.whitelist.whitelisted ? (
-    <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
-  ) : (
+  if (proposal.whitelist.whitelisted)
+    return <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
+  // An open Fellowship referendum that could not be read may be the one for this call, so
+  // neither claim that there is none nor offer to open another.
+  if (fellowshipUncertain)
+    return (
+      <StageNote title="Fellowship">
+        Not whitelisted. Whether a Fellowship referendum to whitelist it is open could not be
+        determined, because an open Fellowship referendum could not be read in full.
+      </StageNote>
+    )
+  return (
     <StageNote
       title="Fellowship"
       action={<WhitelistButton proposal={proposal} statuses={statuses} onSubmitted={onVoted} />}
@@ -155,7 +166,7 @@ export function ProposalCard(props: Props) {
             <CallTree call={proposal.call} />
           </div>
           {proposal.whitelist && (
-            <p className="mt-2 text-xs text-zinc-500">
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
               Whitelisted call hash{" "}
               <span className="font-mono" title={proposal.whitelist.hash}>
                 {shortHex(proposal.whitelist.hash)}

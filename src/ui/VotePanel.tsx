@@ -32,7 +32,7 @@ function FellowshipVote(props: {
   if (status.rank === null) return null
   if (status.rank < minRank)
     return (
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
         This track needs rank {minRank}. The selected account has rank {status.rank}.
       </p>
     )
@@ -45,6 +45,7 @@ function FellowshipVote(props: {
         <button
           type="button"
           disabled={busy}
+          aria-pressed={current === "aye"}
           className={choice(current === "aye")}
           onClick={() => submit(fellowshipVoteTx(stage, true), account)}
         >
@@ -53,6 +54,7 @@ function FellowshipVote(props: {
         <button
           type="button"
           disabled={busy}
+          aria-pressed={current === "nay"}
           className={choice(current === "nay")}
           onClick={() => submit(fellowshipVoteTx(stage, false), account)}
         >
@@ -119,6 +121,7 @@ function OpenVote(props: {
           <button
             key={d}
             type="button"
+            aria-pressed={direction === d}
             className={choice(direction === d)}
             onClick={() => setChosen(d)}
           >
@@ -159,7 +162,7 @@ function OpenVote(props: {
           {mine?.type === "voted" ? "Change vote" : "Vote"}
         </button>
       </div>
-      <p className="mt-1 text-xs text-zinc-500">
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {problem ??
           (ready
             ? `Votes with ${formatExact(parsed, network)}. A new vote replaces an earlier one.`

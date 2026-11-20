@@ -68,11 +68,11 @@ export default function App() {
         </p>
       )}
 
-      {!snapshot && !error && <p className="text-sm text-zinc-500">Reading chain state…</p>}
-
-      {snapshot && (
-        <ReleaseWizard proposals={snapshot.proposals} statuses={statuses} onSubmitted={refresh} />
+      {!snapshot && !error && (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Reading chain state…</p>
       )}
+
+      {snapshot && <ReleaseWizard snapshot={snapshot} statuses={statuses} onSubmitted={refresh} />}
 
       {snapshot && (
         <UpgradePanel
@@ -111,13 +111,13 @@ export default function App() {
       )}
 
       {snapshot?.pending.map((network) => (
-        <p key={network} className="mb-3 text-sm text-zinc-500">
+        <p key={network} className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
           Reading {NETWORKS[network].name}…
         </p>
       ))}
 
       {snapshot && proposals.length === 0 && (
-        <p className="text-sm text-zinc-500">No active referenda.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No active referenda.</p>
       )}
 
       <div className="space-y-4">
@@ -125,7 +125,8 @@ export default function App() {
           <ProposalCard
             key={proposal.id}
             proposal={proposal}
-            releaseHashes={releaseHashes}
+            fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
+            releaseHashes={releaseHashes ?? {}}
             statuses={statuses}
             onVoted={refresh}
           />
@@ -133,7 +134,7 @@ export default function App() {
       </div>
 
       {snapshot && (
-        <footer className="mt-6 text-xs text-zinc-500">
+        <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">
           Read from chain state at {formatTime(snapshot.loadedAt)}.
           {cleanups.length > 0 &&
             !cleanups.some(needsCleanup) &&

@@ -28,7 +28,7 @@ export function WhitelistButton(props: {
   const rank = props.statuses.find((s) => s.address === account?.address)?.rank ?? null
   if (!account || rank === null || rank < FELLOWSHIP_SUBMIT_RANK)
     return (
-      <p className="mt-2 text-xs text-zinc-500">
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
         A Fellowship member of rank {FELLOWSHIP_SUBMIT_RANK} or higher can open one here.
       </p>
     )
@@ -55,7 +55,9 @@ export function WhitelistButton(props: {
       >
         Open Fellowship referendum
       </button>
-      {building && <p className="mt-2 text-xs text-zinc-500">Building the referendum…</p>}
+      {building && (
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Building the referendum…</p>
+      )}
       {error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">{error}</p>}
       <TxStatus state={state} />
     </div>

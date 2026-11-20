@@ -20,7 +20,9 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
         <div className="text-sm">
           <p className="font-medium">
             {account.name ?? shortAddress(account.address)}{" "}
-            <span className="font-normal text-zinc-500">on {NETWORKS[cleanup.network].name}</span>
+            <span className="font-normal text-zinc-500 dark:text-zinc-400">
+              on {NETWORKS[cleanup.network].name}
+            </span>
           </p>
           <p className="mt-1 text-zinc-600 dark:text-zinc-400">
             {count === 0
@@ -49,7 +51,7 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
         </div>
       </div>
       {count > MAX_REMOVALS && (
-        <p className="mt-2 text-xs text-zinc-500">
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
           One transaction clears {MAX_REMOVALS} votes, newest first. Repeat it for the rest; the
           full amount unlocks once all of them are cleared.
         </p>
@@ -63,7 +65,7 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
             {cleanup.stale.map((vote) => (
               <li key={`${vote.trackId}-${vote.index}`}>
                 <span className="tabular-nums">#{vote.index}</span>{" "}
-                <span className="text-zinc-500">
+                <span className="text-zinc-500 dark:text-zinc-400">
                   ({vote.track}, {vote.outcome.toLowerCase()})
                 </span>
                 : {vote.detail}

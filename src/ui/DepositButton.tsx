@@ -23,7 +23,7 @@ export function DepositButton(props: {
   const free = status.free[chain]
   if (free < stage.deposit.required)
     return (
-      <span className="text-xs text-zinc-500">
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">
         The selected account has {formatBalance(free, stage.network)} free on {CHAINS[chain].name}.
       </span>
     )

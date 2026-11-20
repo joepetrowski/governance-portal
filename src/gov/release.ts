@@ -30,7 +30,7 @@ export type OpengovLib = typeof Opengov
 
 const REPO = "polkadot-fellows/runtimes"
 /** Blocks after approval at which the upgrade enacts, as the command line tool defaults to. */
-const ENACT_AFTER = 10
+export const ENACT_AFTER = 10
 const VERSION_TIMEOUT_MS = 15_000
 /** Fellowship rank needed to submit a Fellowship referendum (`SubmitOrigin` on Collectives). */
 export const FELLOWSHIP_SUBMIT_RANK = 3
@@ -68,8 +68,12 @@ export async function fetchRelease(tag: string | "latest"): Promise<Release> {
   const path = tag === "latest" ? "latest" : `tags/${tag}`
   const response = await fetch(`https://api.github.com/repos/${REPO}/releases/${path}`)
   if (response.status === 404) throw new Error(`There is no release ${tag} of ${REPO}.`)
+  if (response.status === 403 || response.status === 429)
+    throw new Error("GitHub is limiting requests from this address. Try again in a few minutes.")
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for the release.`)
   const body = await response.json()
+  if (parseTag(String(body.tag_name)) !== body.tag_name)
+    throw new Error(`The release is tagged ${body.tag_name}, which is not a runtime version.`)
   return {
     tag: body.tag_name,
     url: body.html_url,
@@ -427,8 +431,10 @@ export async function fellowshipSubmitAllTx(builts: Pick<BuiltUpgrade, "calls">[
 export async function publicSubmitTx(built: BuiltUpgrade) {
   const api = assetHubApi(built.network)
   const submit = await api.txFromCallData(fromHex(built.calls.public_referendum.encoded))
-  const noted = await api.query.Preimage.RequestStatusFor.getValue(built.calls.public_preimage_hash)
-  if (noted) return submit
+  // The preimage is on chain only if its bytes are; a request for it alone is not enough.
+  const { public_preimage_hash: hash, public_preimage_len: len } = built.calls
+  const noted = await api.query.Preimage.PreimageFor.getValue([hash, len])
+  if (noted !== undefined) return submit
   const preimage = await api.txFromCallData(fromHex(built.calls.public_preimage.encoded))
   return api.tx.Utility.batch_all({ calls: [preimage.decodedCall, submit.decodedCall] })
 }

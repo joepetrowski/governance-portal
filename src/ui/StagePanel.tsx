@@ -46,7 +46,7 @@ function Meter(props: { label: string; current: number | null; required: number 
           >
             {current === null ? "no votes" : percent(current)}
           </span>
-          <span className="text-zinc-500"> · needs {percent(required)}</span>
+          <span className="text-zinc-500 dark:text-zinc-400"> · needs {percent(required)}</span>
         </span>
       </div>
       <div className="relative mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
@@ -74,7 +74,9 @@ function TimeBar({ stage }: { stage: Stage }) {
         <span className="text-zinc-600 dark:text-zinc-400">
           {status.phase === "confirming" ? "Confirmation period" : "Decision period"}
         </span>
-        <span className="tabular-nums text-zinc-500">{percent(elapsed)} elapsed</span>
+        <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
+          {percent(elapsed)} elapsed
+        </span>
       </div>
       <div className="mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
         <div className="h-2 rounded-full bg-zinc-500" style={{ width: `${elapsed * 100}%` }} />
@@ -124,9 +126,9 @@ export function StagePanel(props: {
     <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <header className="flex flex-wrap items-baseline justify-between gap-x-3">
         <h3 className="font-medium">
-          {heading} <span className="text-zinc-500">#{stage.index}</span>
+          {heading} <span className="text-zinc-500 dark:text-zinc-400">#{stage.index}</span>
         </h3>
-        <span className="text-sm text-zinc-500">{stage.track} track</span>
+        <span className="text-sm text-zinc-500 dark:text-zinc-400">{stage.track} track</span>
       </header>
       <p className="mt-2 text-sm">
         <span
@@ -146,7 +148,7 @@ export function StagePanel(props: {
         <TimeBar stage={stage} />
       </div>
       <DepositRow stage={stage} action={props.depositAction} />
-      <p className="mt-3 text-xs text-zinc-500">
+      <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
         Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
         <span className="font-mono" title={stage.submitter}>
           {shortAddress(stage.submitter)}

@@ -17,7 +17,7 @@ export function WalletButton() {
     return (
       <div className="flex flex-wrap items-center justify-end gap-2">
         {wallet.accounts.length === 0 ? (
-          <span className="text-sm text-zinc-500">
+          <span className="text-sm text-zinc-500 dark:text-zinc-400">
             No accounts shared by {displayName(wallet.connected)}
           </span>
         ) : (
@@ -45,7 +45,7 @@ export function WalletButton() {
 
   if (wallet.available.length === 0)
     return (
-      <span className="text-sm text-zinc-500">
+      <span className="text-sm text-zinc-500 dark:text-zinc-400">
         No wallet extension found. Install Talisman to vote.
       </span>
     )

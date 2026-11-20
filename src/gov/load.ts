@@ -140,6 +140,12 @@ export interface Proposal {
 export interface Snapshot {
   /** Proposals, with upgrades and other whitelisted calls first. */
   proposals: Proposal[]
+  /**
+   * Whether some open Fellowship referendum could not be read in full (its call is missing, or
+   * part of it was not decoded). Such a referendum may whitelist a call without the page knowing,
+   * so "no Fellowship referendum is open for this call" cannot be concluded while this is set.
+   */
+  fellowshipUncertain: boolean
   /** Networks whose public referenda could not be read, so their proposals are missing. */
   unreachable: Network[]
   /**
@@ -552,6 +558,10 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
     ),
   ])
 
+  const fellowshipUncertain = fellowship.some(
+    (stage) => !stage.call || [...walk(stage.call)].some((n) => n.undecoded),
+  )
+
   // Fellowship referenda that whitelist a call, by network and hash.
   const requests = new Map<string, Stage>()
   const unpaired = new Set(fellowship)
@@ -613,5 +623,5 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
   const rank = { upgrade: 0, whitelist: 1, other: 2 }
   const newest = (p: Proposal) => p.open?.index ?? p.fellowship?.index ?? 0
   proposals.sort((a, b) => rank[a.kind] - rank[b.kind] || newest(b) - newest(a))
-  return { proposals, unreachable, pending, loadedAt: Date.now() }
+  return { proposals, fellowshipUncertain, unreachable, pending, loadedAt: Date.now() }
 }

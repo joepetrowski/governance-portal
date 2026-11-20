@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { CHAINS, type ChainId, chainsOf, type Network, NETWORK_IDS, NETWORKS } from "../chains"
-import type { Proposal } from "../gov/load"
+import type { Proposal, Snapshot } from "../gov/load"
 import {
   type BuiltUpgrade,
   buildUpgrade,
+  ENACT_AFTER,
   type ChainPlan,
   FELLOWSHIP_SUBMIT_RANK,
   fellowshipSubmitAllTx,
@@ -50,33 +51,42 @@ function SubmitStep(props: {
 }) {
   const wallet = useWallet()
   const { state, busy, submit } = useSubmit(props.onSubmitted)
+  const [making, setMaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const account = wallet.selected
+  // Once it is in a block it must not be offered again, even before the list below shows it.
+  const submitted = state.step === "included" || state.step === "finalized"
   return (
     <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <h4 className="font-medium">{props.title}</h4>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{props.detail}</p>
-      {props.blocked ? (
+      {submitted ? null : props.blocked ? (
         <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">{props.blocked}</p>
       ) : !account ? (
-        <p className="mt-3 text-sm text-zinc-500">Connect a wallet to submit.</p>
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">Connect a wallet to submit.</p>
       ) : (
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || making}
           className={`mt-3 ${choice(true)}`}
           onClick={() => {
             setError(null)
+            setMaking(true)
             props
               .makeTx()
               .then((tx) => submit(tx, account))
               .catch((e) => setError(message(e)))
+              .finally(() => setMaking(false))
           }}
         >
           Submit
         </button>
       )}
-      {error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      )}
       <TxStatus state={state} />
     </section>
   )
@@ -111,10 +121,16 @@ const existingFor = (built: BuiltUpgrade, proposals: Proposal[]) =>
 function fellowshipBlock(
   existing: Proposal | undefined,
   status: AccountStatus | undefined,
+  snapshot: Snapshot,
 ): string | null {
   if (existing?.fellowship)
     return `Already open as Fellowship referendum #${existing.fellowship.index}.`
   if (existing?.whitelist?.whitelisted) return "The Fellowship has already whitelisted this call."
+  if (snapshot.fellowshipUncertain)
+    return (
+      "Cannot tell whether a Fellowship referendum for this call is already open, because an " +
+      "open Fellowship referendum could not be read in full. Try again shortly."
+    )
   if (status && (status.rank ?? -1) < FELLOWSHIP_SUBMIT_RANK)
     return (
       `Needs a Fellowship member of rank ${FELLOWSHIP_SUBMIT_RANK} or higher. ` +
@@ -131,18 +147,20 @@ function fellowshipBlock(
  */
 function AllFellowship(props: {
   builts: BuiltUpgrade[]
-  proposals: Proposal[]
+  snapshot: Snapshot
   statuses: AccountStatus[]
   onSubmitted: () => void
 }) {
   const wallet = useWallet()
   const status = props.statuses.find((s) => s.address === wallet.selected?.address)
-  const blocks = props.builts.map((b) => fellowshipBlock(existingFor(b, props.proposals), status))
+  const blocks = props.builts.map((b) =>
+    fellowshipBlock(existingFor(b, props.snapshot.proposals), status, props.snapshot),
+  )
   // If any of them is open already, the remaining one is submitted from its own section.
   if (
     props.builts.length < 2 ||
     props.builts.some((b) => {
-      const existing = existingFor(b, props.proposals)
+      const existing = existingFor(b, props.snapshot.proposals)
       return existing?.fellowship || existing?.whitelist?.whitelisted
     })
   )
@@ -165,7 +183,7 @@ function AllFellowship(props: {
 
 function Result(props: {
   built: BuiltUpgrade
-  proposals: Proposal[]
+  snapshot: Snapshot
   statuses: AccountStatus[]
   onSubmitted: () => void
 }) {
@@ -177,17 +195,23 @@ function Result(props: {
   const [copied, setCopied] = useState(false)
   const status = props.statuses.find((s) => s.address === wallet.selected?.address)
   // The same upgrade may already be on its way: Referenda are matched by the whitelisted hash.
-  const existing = existingFor(built, props.proposals)
+  const existing = existingFor(built, props.snapshot.proposals)
   const names = built.runtimes.map((r) => CHAINS[r.chain].name)
 
-  const fellowshipBlocked = fellowshipBlock(existing, status)
+  const fellowshipBlocked = fellowshipBlock(existing, status, props.snapshot)
+  const unread =
+    props.snapshot.pending.includes(network) || props.snapshot.unreachable.includes(network)
   const publicBlocked = existing?.open
     ? `Already open as public referendum #${existing.open.index}.`
-    : status && status.free[assetHub] < built.submissionDeposit
-      ? `Needs ${formatBalance(built.submissionDeposit, network)} free on ${hub} for the ` +
-        "submission deposit, and a little more for the preimage. The selected account has " +
-        `${formatBalance(status.free[assetHub], network)}.`
-      : null
+    : unread
+      ? `Cannot tell whether this referendum is already open, because the referenda of ${
+          NETWORKS[network].name
+        } are not read yet. Try again shortly.`
+      : status && status.free[assetHub] < built.submissionDeposit
+        ? `Needs ${formatBalance(built.submissionDeposit, network)} free on ${hub} for the ` +
+          "submission deposit, and a little more for the preimage. The selected account has " +
+          `${formatBalance(status.free[assetHub], network)}.`
+        : null
 
   return (
     <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
@@ -223,7 +247,7 @@ function Result(props: {
           onSubmitted={props.onSubmitted}
         />
       </div>
-      <p className="mt-3 text-xs text-zinc-500">
+      <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
         The two referenda are independent: Different accounts can submit them, in either order.
         Whoever builds the same release and chains gets the same call, so you can submit one and
         send this link to someone who can submit the other.{" "}
@@ -240,9 +264,10 @@ function Result(props: {
           {copied ? "Link copied" : "Copy link"}
         </button>
       </p>
-      <p className="mt-2 text-xs text-zinc-500">
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
         Once submitted, each referendum appears in the list below, where its decision deposit can be
-        placed. The upgrade enacts 10 blocks after the public referendum is approved.
+        placed. The call is dispatched {ENACT_AFTER} blocks after the public referendum is approved,
+        and each chain's upgrade then waits to be applied.
       </p>
       <details className="mt-3">
         <summary className="cursor-pointer text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -251,7 +276,7 @@ function Result(props: {
         <div className="mt-2 overflow-x-auto">
           <CallTree call={built.tree} />
         </div>
-        <dl className="mt-2 space-y-0.5 text-xs text-zinc-500">
+        <dl className="mt-2 space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {built.runtimes.map((r) => (
             <div key={r.chain}>
               <dt className="inline">{CHAINS[r.chain].name} code hash </dt>
@@ -280,7 +305,7 @@ function NetworkUpgrade(props: {
   preselect: ChainId[] | null
   /** Told whenever the built upgrade changes, with null when it is discarded. */
   onBuilt: (built: BuiltUpgrade | null) => void
-  proposals: Proposal[]
+  snapshot: Snapshot
   statuses: AccountStatus[]
   onSubmitted: () => void
 }) {
@@ -356,7 +381,9 @@ function NetworkUpgrade(props: {
                 onChange={() => toggle(plan.chain)}
               />
               <span className="w-28 font-medium">{CHAINS[plan.chain].name}</span>
-              <span className="tabular-nums text-zinc-500">{planNote(plan)}</span>
+              <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
+                {planNote(plan)}
+              </span>
             </label>
           </li>
         ))}
@@ -374,7 +401,7 @@ function NetworkUpgrade(props: {
       {built && (
         <Result
           built={built}
-          proposals={props.proposals}
+          snapshot={props.snapshot}
           statuses={props.statuses}
           onSubmitted={props.onSubmitted}
         />
@@ -393,7 +420,7 @@ async function readRelease(tag: string): Promise<Loaded> {
  * by the wizard reopens it on the same release, network, and chains.
  */
 export function ReleaseWizard(props: {
-  proposals: Proposal[]
+  snapshot: Snapshot
   statuses: AccountStatus[]
   onSubmitted: () => void
 }) {
@@ -464,7 +491,7 @@ export function ReleaseWizard(props: {
         </button>
       </form>
       {input !== "" && !tag && (
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Enter a tag such as v2.6.0, or the URL of the release.
         </p>
       )}
@@ -486,7 +513,7 @@ export function ReleaseWizard(props: {
             >
               Release {loaded.release.tag}
             </a>
-            <span className="text-zinc-500">
+            <span className="text-zinc-500 dark:text-zinc-400">
               {" "}
               · each network is upgraded by its own referenda; choose the chains
             </span>
@@ -505,14 +532,14 @@ export function ReleaseWizard(props: {
                     : null
                 }
                 onBuilt={(built) => setBuilts((all) => ({ ...all, [network]: built ?? undefined }))}
-                proposals={props.proposals}
+                snapshot={props.snapshot}
                 statuses={props.statuses}
                 onSubmitted={props.onSubmitted}
               />
             ))}
             <AllFellowship
               builts={NETWORK_IDS.flatMap((n) => builts[n] ?? [])}
-              proposals={props.proposals}
+              snapshot={props.snapshot}
               statuses={props.statuses}
               onSubmitted={props.onSubmitted}
             />

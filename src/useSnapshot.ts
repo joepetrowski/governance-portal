@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { loadSnapshot, type Snapshot } from "./gov/load"
 
 const REFRESH_MS = 60_000
@@ -15,21 +15,22 @@ export function useSnapshot() {
   // Bumping this restarts the polling loop, which loads immediately.
   const [generation, setGeneration] = useState(0)
   const refresh = useCallback(() => setGeneration((g) => g + 1), [])
+  const first = useRef(true)
 
   useEffect(() => {
     let canceled = false
     let timer: ReturnType<typeof setTimeout>
-    // Polkadot is the focus, so the first read is of Polkadot alone and is shown as soon as it
-    // is there. Every read after it includes Kusama and replaces the result when it is complete.
-    let first = true
+    // Polkadot is the focus, so the very first read is of Polkadot alone and is shown as soon as
+    // it is there. Every read after it includes Kusama and replaces the result when it is
+    // complete.
     const tick = async () => {
       try {
-        if (first) {
+        if (first.current) {
           const polkadot = await loadSnapshot(["polkadot"])
           if (canceled) return
           setSnapshot((current) => current ?? polkadot)
           setError(null)
-          first = false
+          first.current = false
         }
         const next = await loadSnapshot()
         if (canceled) return

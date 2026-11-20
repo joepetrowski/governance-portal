@@ -65,14 +65,14 @@ function Node({ node }: { node: CallNode }) {
           </span>
         ) : (
           <span
-            className={`font-mono text-sm ${isPlumbing(node) ? "text-zinc-500" : ""}`}
+            className={`font-mono text-sm ${isPlumbing(node) ? "text-zinc-500 dark:text-zinc-400" : ""}`}
             title={node.xcm ? "An XCM instruction" : undefined}
           >
             {node.xcm ? `XCM ${node.name}` : `${node.pallet}.${node.name}`}
           </span>
         )}
         {node.xcmOriginKind && (
-          <span className="text-xs text-zinc-500">as {node.xcmOriginKind}</span>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">as {node.xcmOriginKind}</span>
         )}
       </div>
       {args.length > 0 && (

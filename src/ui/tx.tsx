@@ -50,9 +50,10 @@ export interface Submittable {
 /**
  * State and triggers for one transaction. `submit` signs with the account and follows the
  * transaction to finality. `follow` does the same for one that is already submitted, such as an
- * unsigned one. `onIncluded` runs when it is in a block and again when it is finalized.
+ * unsigned one. `onFinalized` runs once it is finalized, which is when
+ * chain state read by this page shows its effect.
  */
-export function useSubmit(onIncluded: () => void) {
+export function useSubmit(onFinalized: () => void) {
   const [state, setState] = useState<TxState>({ step: "idle" })
   const busy = state.step === "signing" || state.step === "broadcast" || state.step === "included"
 
@@ -70,7 +71,7 @@ export function useSubmit(onIncluded: () => void) {
           return
         }
         setState({ step: event.type === "finalized" ? "finalized" : "included" })
-        onIncluded()
+        if (event.type === "finalized") onFinalized()
       },
       error: (e) =>
         setState({ step: "failed", reason: e instanceof Error ? e.message : String(e) }),
@@ -89,8 +90,16 @@ export function useSubmit(onIncluded: () => void) {
 export function TxStatus({ state }: { state: TxState }) {
   if (state.step === "idle") return null
   if (state.step === "failed")
-    return <p className="mt-2 text-xs text-red-700 dark:text-red-400">{state.reason}</p>
-  return <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{TX_LABEL[state.step]}</p>
+    return (
+      <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400">
+        {state.reason}
+      </p>
+    )
+  return (
+    <p role="status" className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+      {TX_LABEL[state.step]}
+    </p>
+  )
 }
 
 /** Class names of a button that is one of a set of choices, filled when it is the active one. */
