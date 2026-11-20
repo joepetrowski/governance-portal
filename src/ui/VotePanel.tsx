@@ -20,6 +20,8 @@ function FellowshipVote(props: { stage: Stage; account: Account; status: Account
   const { stage, account, status } = props
   const { state, busy, submit } = useSubmit(props.onVoted)
   const minRank = stage.minRank ?? 0
+  const mine = status.votes[stageKey(stage)]
+  const current = mine?.type === "voted" ? mine.direction : null
 
   if (status.rank === null) return null
   if (status.rank < minRank)
@@ -32,10 +34,10 @@ function FellowshipVote(props: { stage: Stage; account: Account; status: Account
     <div>
       <div className="flex items-center gap-2">
         <span className="text-sm text-zinc-600 dark:text-zinc-400">Vote as rank {status.rank}:</span>
-        <button type="button" disabled={busy} className={choice(false)} onClick={() => submit(fellowshipVoteTx(stage, true), account)}>
+        <button type="button" disabled={busy} className={choice(current === "aye")} onClick={() => submit(fellowshipVoteTx(stage, true), account)}>
           Aye
         </button>
-        <button type="button" disabled={busy} className={choice(false)} onClick={() => submit(fellowshipVoteTx(stage, false), account)}>
+        <button type="button" disabled={busy} className={choice(current === "nay")} onClick={() => submit(fellowshipVoteTx(stage, false), account)}>
           Nay
         </button>
       </div>
@@ -49,7 +51,9 @@ let lockDaysCache: Promise<number[]> | undefined
 function OpenVote(props: { stage: Stage; account: Account; status: AccountStatus; onVoted: () => void }) {
   const { stage, account, status } = props
   const { state, busy, submit } = useSubmit(props.onVoted)
-  const [direction, setDirection] = useState<Direction>("aye")
+  // Nothing is selected until the user picks a direction, unless the account has already voted,
+  // in which case its vote on chain is shown as the selection.
+  const [chosen, setChosen] = useState<Direction | null>(null)
   const [amount, setAmount] = useState("")
   const [conviction, setConviction] = useState(1)
   const [lockDays, setLockDays] = useState<number[] | null>(null)
@@ -61,6 +65,8 @@ function OpenVote(props: { stage: Stage; account: Account; status: AccountStatus
 
   const mine = status.votes[stageKey(stage)]
   if (mine?.type === "delegating") return null
+  const direction: Direction | null =
+    chosen ?? (mine?.type === "voted" && mine.direction !== "split" ? mine.direction : null)
 
   const parsed = parseDot(amount)
   const problem =
@@ -71,18 +77,18 @@ function OpenVote(props: { stage: Stage; account: Account; status: AccountStatus
         : parsed > status.balance
           ? `This account holds ${formatDot(status.balance)}.`
           : null
-  const ready = parsed !== null && parsed > 0n && problem === null && !busy
+  const ready = direction !== null && parsed !== null && parsed > 0n && problem === null && !busy
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready) submit(openVoteTx(stage, { direction, amount: parsed, conviction }), account)
+        if (ready && direction) submit(openVoteTx(stage, { direction, amount: parsed, conviction }), account)
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
         {(["aye", "nay", "abstain"] as const).map((d) => (
-          <button key={d} type="button" className={choice(direction === d)} onClick={() => setDirection(d)}>
+          <button key={d} type="button" className={choice(direction === d)} onClick={() => setChosen(d)}>
             {d[0].toUpperCase() + d.slice(1)}
           </button>
         ))}

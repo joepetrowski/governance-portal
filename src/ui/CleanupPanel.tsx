@@ -1,7 +1,5 @@
 import { RELAY_BLOCK_MS } from "../chains"
 import { type Cleanup, cleanupTx, MAX_REMOVALS } from "../gov/cleanup"
-import type { Snapshot } from "../gov/load"
-import { useCleanups } from "../useCleanups"
 import { type Account, useWallet } from "../wallet"
 import { formatDateTime, formatDot, shortAddress } from "./format"
 import { choice, TxStatus, useSubmit } from "./tx"
@@ -15,7 +13,7 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
   const freed = cleanup.lockedNow - cleanup.lockedAfter
 
   return (
-    <li className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <li className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="text-sm">
           <p className="font-medium">{account.name ?? shortAddress(account.address)}</p>
@@ -77,38 +75,33 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
 }
 
 /** Votes on finished public referenda, and voting locks that can be lowered, per wallet account. */
-export function CleanupPanel(props: { snapshot: Snapshot; onCleaned: () => void }) {
-  const wallet = useWallet()
-  const cleanups = useCleanups(
-    wallet.accounts.map((a) => a.address),
-    props.snapshot,
-  )
-  if (!wallet.connected || cleanups.length === 0) return null
+export const needsCleanup = (cleanup: Cleanup) => cleanup.stale.length + cleanup.tracks.length > 0
 
-  const pending = cleanups.flatMap((cleanup) => {
+/**
+ * Shown above the proposals, and only when an account has something to clear, so that it is seen
+ * without scrolling but takes no room otherwise.
+ */
+export function CleanupPanel(props: { cleanups: Cleanup[]; onCleaned: () => void }) {
+  const wallet = useWallet()
+  const pending = props.cleanups.flatMap((cleanup) => {
     const account = wallet.accounts.find((a) => a.address === cleanup.address)
-    return account && cleanup.stale.length + cleanup.tracks.length > 0 ? [{ cleanup, account }] : []
+    return account && needsCleanup(cleanup) ? [{ cleanup, account }] : []
   })
+  if (pending.length === 0) return null
 
   return (
-    <section className="mt-8">
+    <section className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/30">
       <h2 className="text-lg font-semibold">Finished votes and locks</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         Votes stay on record after a public referendum ends, and they keep their balance locked
         until they are removed. Removing a vote that is still within its conviction lock loses
         nothing: that balance stays locked until the lock expires.
       </p>
-      {pending.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">
-          {cleanups.length === 1 ? "Your account has" : "Your accounts have"} nothing to clear.
-        </p>
-      ) : (
-        <ul className="mt-3 space-y-3">
-          {pending.map(({ cleanup, account }) => (
-            <AccountCleanup key={cleanup.address} cleanup={cleanup} account={account} onCleaned={props.onCleaned} />
-          ))}
-        </ul>
-      )}
+      <ul className="mt-3 space-y-3">
+        {pending.map(({ cleanup, account }) => (
+          <AccountCleanup key={cleanup.address} cleanup={cleanup} account={account} onCleaned={props.onCleaned} />
+        ))}
+      </ul>
     </section>
   )
 }

@@ -1,8 +1,9 @@
-import { CleanupPanel } from "./ui/CleanupPanel"
+import { CleanupPanel, needsCleanup } from "./ui/CleanupPanel"
 import { formatTime } from "./ui/format"
 import { ProposalCard } from "./ui/ProposalCard"
 import { WalletButton } from "./ui/WalletButton"
 import { useAccountStatuses } from "./useAccountStatuses"
+import { useCleanups } from "./useCleanups"
 import { useSnapshot } from "./useSnapshot"
 import { useWallet } from "./wallet"
 
@@ -10,6 +11,11 @@ export default function App() {
   const { snapshot, error, refresh } = useSnapshot()
   const wallet = useWallet()
   const statuses = useAccountStatuses(
+    wallet.accounts.map((a) => a.address),
+    snapshot,
+  )
+
+  const cleanups = useCleanups(
     wallet.accounts.map((a) => a.address),
     snapshot,
   )
@@ -35,6 +41,8 @@ export default function App() {
 
       {!snapshot && !error && <p className="text-sm text-zinc-500">Reading chain state…</p>}
 
+      <CleanupPanel cleanups={cleanups} onCleaned={refresh} />
+
       {snapshot && snapshot.proposals.length === 0 && (
         <p className="text-sm text-zinc-500">No active referenda.</p>
       )}
@@ -45,11 +53,10 @@ export default function App() {
         ))}
       </div>
 
-      {snapshot && <CleanupPanel snapshot={snapshot} onCleaned={refresh} />}
-
       {snapshot && (
         <footer className="mt-6 text-xs text-zinc-500">
           Read from chain state at {formatTime(snapshot.loadedAt)}.
+          {cleanups.length > 0 && !cleanups.some(needsCleanup) && " No finished votes or expired locks to clear."}
         </footer>
       )}
     </div>
