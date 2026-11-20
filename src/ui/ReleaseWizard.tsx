@@ -1,5 +1,3 @@
-import init, * as lib from "opengov"
-import wasmUrl from "opengov/opengov_bg.wasm?url"
 import { useEffect, useState } from "react"
 import { CHAINS, type ChainId, chainsOf, type Network, NETWORK_IDS, NETWORKS } from "../chains"
 import type { Proposal } from "../gov/load"
@@ -20,11 +18,8 @@ import type { AccountStatus } from "../gov/votes"
 import { useWallet } from "../wallet"
 import { CallTree } from "./CallTree"
 import { formatBalance, formatList, shortHex } from "./format"
+import { loadOpengov } from "./opengov"
 import { choice, type Submittable, TxStatus, useSubmit } from "./tx"
-
-// The library's WebAssembly is fetched the first time a release is loaded.
-let libReady: Promise<typeof lib> | undefined
-const loadLib = () => (libReady ??= init({ module_or_path: wasmUrl }).then(() => lib))
 
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -258,7 +253,7 @@ function NetworkUpgrade(props: {
     setBusy("Downloading runtimes…")
     try {
       const result = await buildUpgrade(
-        await loadLib(),
+        await loadOpengov(),
         loaded.release,
         network,
         plans.filter((p) => selected.has(p.chain)),
@@ -321,7 +316,7 @@ function NetworkUpgrade(props: {
 }
 
 async function readRelease(tag: string): Promise<Loaded> {
-  const [opengov, release] = await Promise.all([loadLib(), fetchRelease(tag)])
+  const [opengov, release] = await Promise.all([loadOpengov(), fetchRelease(tag)])
   return { release, plans: await planRelease(opengov, release) }
 }
 

@@ -1,0 +1,63 @@
+import { useState } from "react"
+import type { Proposal } from "../gov/load"
+import { FELLOWSHIP_SUBMIT_RANK, fellowshipCallsFor, fellowshipSubmitTx } from "../gov/release"
+import type { AccountStatus } from "../gov/votes"
+import { useWallet } from "../wallet"
+import { loadOpengov } from "./opengov"
+import { choice, TxStatus, useSubmit } from "./tx"
+
+/**
+ * Opens the Fellowship referendum that whitelists the call of a public referendum which has none.
+ * Shown to everyone, and enabled for a selected account of sufficient rank. Renders nothing when
+ * the public referendum carries only the hash of its call, from which nothing can be built.
+ */
+export function WhitelistButton(props: {
+  proposal: Proposal
+  statuses: AccountStatus[]
+  onSubmitted: () => void
+}) {
+  const { proposal } = props
+  const wallet = useWallet()
+  const { state, busy, submit } = useSubmit(props.onSubmitted)
+  const [building, setBuilding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const call = proposal.whitelist?.call
+  if (!call) return null
+
+  const account = wallet.selected
+  const rank = props.statuses.find((s) => s.address === account?.address)?.rank ?? null
+  if (!account || rank === null || rank < FELLOWSHIP_SUBMIT_RANK)
+    return (
+      <p className="mt-2 text-xs text-zinc-500">
+        A Fellowship member of rank {FELLOWSHIP_SUBMIT_RANK} or higher can open one here.
+      </p>
+    )
+
+  const open = async () => {
+    setBuilding(true)
+    setError(null)
+    try {
+      const built = await fellowshipCallsFor(await loadOpengov(), proposal.network, call)
+      submit(await fellowshipSubmitTx(built), account)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    setBuilding(false)
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        disabled={busy || building}
+        className={choice(true)}
+        onClick={() => void open()}
+      >
+        Open Fellowship referendum
+      </button>
+      {building && <p className="mt-2 text-xs text-zinc-500">Building the referendum…</p>}
+      {error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">{error}</p>}
+      <TxStatus state={state} />
+    </div>
+  )
+}

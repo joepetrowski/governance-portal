@@ -109,7 +109,14 @@ export interface Proposal {
   /** The public referendum, if one is open. */
   open?: Stage
   /** Present when the proposal dispatches (or whitelists) a call through the whitelist. */
-  whitelist?: { hash: string; whitelisted: boolean }
+  whitelist?: {
+    /** Hash of the whitelisted call. */
+    hash: string
+    /** Whether the Fellowship has whitelisted it. */
+    whitelisted: boolean
+    /** The encoded call, when the public referendum carries it and not only its hash. */
+    call?: Uint8Array
+  }
   /** Runtime upgrades the proposal authorizes. Empty if it is not an upgrade. */
   upgrades: Upgrade[]
   /** Chains with a call that could not be decoded, so its contents are unknown. */
@@ -373,12 +380,16 @@ const hex = (v: unknown) => (v instanceof Uint8Array ? toHex(v) : String(v))
 const argOf = (node: CallNode, key: string) => (node.args as Record<string, unknown>)[key]
 
 /** The hash an open referendum dispatches through the whitelist, with the call itself. */
-function whitelistDispatch(stage: Stage): { hash: string; inner: CallNode | null } | null {
+function whitelistDispatch(
+  stage: Stage,
+): { hash: string; inner: CallNode | null; bytes?: Uint8Array } | null {
   const root = stage.call
   if (!root) return null
-  if (isCallTo(root, "Whitelist", "dispatch_whitelisted_call_with_preimage") && root.bytes)
+  if (isCallTo(root, "Whitelist", "dispatch_whitelisted_call_with_preimage") && root.bytes) {
     // The call is the only argument, so its encoding is everything after the two index bytes.
-    return { hash: blake2Hex(root.bytes.subarray(2)), inner: root.children[0] ?? null }
+    const bytes = root.bytes.subarray(2)
+    return { hash: blake2Hex(bytes), inner: root.children[0] ?? null, bytes }
+  }
   if (isCallTo(root, "Whitelist", "dispatch_whitelisted_call"))
     return { hash: hex(argOf(root, "call_hash")), inner: null }
   return null
@@ -529,7 +540,7 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
         network,
         open: stage,
         fellowship: partner,
-        whitelist: { hash: dispatch.hash, whitelisted },
+        whitelist: { hash: dispatch.hash, whitelisted, call: dispatch.bytes },
         call: dispatch.inner ?? stage.call,
       }),
     )

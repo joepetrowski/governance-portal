@@ -157,12 +157,13 @@ export function StagePanel(props: {
   )
 }
 
-/** Shown in place of a stage that has no active referendum. */
-export function StageNote({ title, children }: { title: string; children: string }) {
+/** Shown in place of a stage that has no active referendum. `action` goes below the text. */
+export function StageNote(props: { title: string; children: string; action?: ReactNode }) {
   return (
     <section className="rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
-      <h3 className="font-medium">{title}</h3>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{children}</p>
+      <h3 className="font-medium">{props.title}</h3>
+      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{props.children}</p>
+      {props.action}
     </section>
   )
 }

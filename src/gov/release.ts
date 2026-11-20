@@ -19,7 +19,7 @@ import {
   type Network,
   NETWORKS,
 } from "../chains"
-import { type CallNode, decodeCall, isCallTo, walk } from "./decode"
+import { blake2Hex, type CallNode, decodeCall, isCallTo, walk } from "./decode"
 
 /**
  * The `opengov` WebAssembly module, once initialized. Passed in so that the browser and Node can
@@ -183,6 +183,68 @@ const hexArg = (node: CallNode, key: string) => {
 }
 
 /**
+ * Throws unless the Fellowship referendum in `calls`, decoded on the live Collectives runtime,
+ * whitelists the call with the given hash on the network's Asset Hub.
+ */
+async function checkFellowshipCalls(
+  calls: Opengov.ReferendumCalls,
+  hash: string,
+  network: Network,
+): Promise<void> {
+  if (!calls.fellowship_referendum || calls.whitelisted_call_hash !== hash)
+    throw new Error("The generated Fellowship referendum does not whitelist the proposal.")
+  const submit = await decodeCall(
+    { id: "collectives" },
+    fromHex(calls.fellowship_referendum.encoded),
+  )
+  // What the Fellowship votes on is inside the submission: inline, or as the preimage noted with
+  // it.
+  const bounded = (submit.args as { proposal?: { type: string; value: unknown } }).proposal
+  let voted: Uint8Array | null = null
+  if (bounded?.type === "Inline" && bounded.value instanceof Uint8Array) voted = bounded.value
+  else if (bounded?.type === "Lookup" && calls.fellowship_preimage) {
+    const note = await decodeCall({ id: "collectives" }, fromHex(calls.fellowship_preimage.encoded))
+    const noted = (note.args as { bytes?: unknown }).bytes
+    if (isCallTo(note, "Preimage", "note_preimage") && noted instanceof Uint8Array) voted = noted
+  }
+  const whitelists =
+    voted !== null &&
+    [...walk(await decodeCall({ id: "collectives" }, voted))].some(
+      (n) =>
+        isCallTo(n, "Whitelist", "whitelist_call") &&
+        "id" in n.chain &&
+        n.chain.id === NETWORKS[network].assetHub &&
+        hexArg(n, "call_hash") === hash,
+    )
+  if (!isCallTo(submit, "FellowshipReferenda", "submit") || !whitelists)
+    throw new Error(
+      "The generated Fellowship referendum does not decode as expected on Collectives.",
+    )
+}
+
+/**
+ * The Fellowship referendum that whitelists an existing call on a network's Asset Hub, for a
+ * public referendum that is already open without one. `call` is the encoded call that the public
+ * referendum dispatches. Throws unless the result, decoded against the live Collectives runtime,
+ * whitelists exactly that call.
+ */
+export async function fellowshipCallsFor(
+  lib: OpengovLib,
+  network: Network,
+  call: Uint8Array,
+): Promise<Pick<BuiltUpgrade, "calls">> {
+  const calls = lib.referendum_calls({
+    proposal: toHex(call),
+    network,
+    track: "whitelistedcaller",
+    dispatch: { after: ENACT_AFTER },
+    ...(network === "kusama" ? { fellowship_on_polkadot: true } : {}),
+  })
+  await checkFellowshipCalls(calls, blake2Hex(call), network)
+  return { calls }
+}
+
+/**
  * Download the selected runtimes of one network, hash them, and build the upgrade proposal and its
  * referenda. The chains are batched in the order of `CHAIN_IDS`, whatever the order of `plans`, so
  * that the same selection always gives the same call hash. Throws unless the result, decoded
@@ -252,42 +314,17 @@ export async function buildUpgrade(
     )
 
   // Check 2: the Fellowship referendum whitelists this proposal on the network's Asset Hub.
-  if (!calls.fellowship_referendum || calls.whitelisted_call_hash !== proposal.hash)
-    throw new Error("The generated Fellowship referendum does not whitelist the proposal.")
-  const submit = await decodeCall(
-    { id: "collectives" },
-    fromHex(calls.fellowship_referendum.encoded),
-  )
-  // What the Fellowship votes on is inside the submission: inline, or as the preimage noted with
-  // it.
-  const bounded = (submit.args as { proposal?: { type: string; value: unknown } }).proposal
-  let voted: Uint8Array | null = null
-  if (bounded?.type === "Inline" && bounded.value instanceof Uint8Array) voted = bounded.value
-  else if (bounded?.type === "Lookup" && calls.fellowship_preimage) {
-    const note = await decodeCall({ id: "collectives" }, fromHex(calls.fellowship_preimage.encoded))
-    const noted = (note.args as { bytes?: unknown }).bytes
-    if (isCallTo(note, "Preimage", "note_preimage") && noted instanceof Uint8Array) voted = noted
-  }
-  const whitelists =
-    voted !== null &&
-    [...walk(await decodeCall({ id: "collectives" }, voted))].some(
-      (n) =>
-        isCallTo(n, "Whitelist", "whitelist_call") &&
-        "id" in n.chain &&
-        n.chain.id === assetHub &&
-        hexArg(n, "call_hash") === proposal.hash,
-    )
-  if (!isCallTo(submit, "FellowshipReferenda", "submit") || !whitelists)
-    throw new Error(
-      "The generated Fellowship referendum does not decode as expected on Collectives.",
-    )
+  await checkFellowshipCalls(calls, proposal.hash, network)
 
   const submissionDeposit = await assetHubApi(network).constants.Referenda.SubmissionDeposit()
   return { network, tag: release.tag, runtimes, proposal, tree, calls, submissionDeposit }
 }
 
-/** The transaction that opens the Fellowship referendum, on Collectives. */
-export async function fellowshipSubmitTx(built: BuiltUpgrade) {
+/**
+ * The transaction that opens the Fellowship referendum, on Collectives. It notes the preimage in
+ * the same batch when the proposal is too long to be carried inline.
+ */
+export async function fellowshipSubmitTx(built: Pick<BuiltUpgrade, "calls">) {
   const api = collectivesApi()
   const submit = await api.txFromCallData(fromHex(built.calls.fellowship_referendum!.encoded))
   if (!built.calls.fellowship_preimage) return submit

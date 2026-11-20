@@ -8,6 +8,7 @@ import { formatList, shortHex } from "./format"
 import { Prose } from "./Prose"
 import { StageNote, StagePanel } from "./StagePanel"
 import { VotePanel } from "./VotePanel"
+import { WhitelistButton } from "./WhitelistButton"
 
 interface Props {
   proposal: Proposal
@@ -33,7 +34,10 @@ function FellowshipStage({ proposal, statuses, onVoted }: Props) {
   return proposal.whitelist.whitelisted ? (
     <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
   ) : (
-    <StageNote title="Fellowship">
+    <StageNote
+      title="Fellowship"
+      action={<WhitelistButton proposal={proposal} statuses={statuses} onSubmitted={onVoted} />}
+    >
       Not whitelisted, and no Fellowship referendum to whitelist it is open. The public referendum
       cannot enact without it.
     </StageNote>
