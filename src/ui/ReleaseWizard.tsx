@@ -6,6 +6,7 @@ import {
   buildUpgrade,
   type ChainPlan,
   FELLOWSHIP_SUBMIT_RANK,
+  fellowshipSubmitAllTx,
   fellowshipSubmitTx,
   fetchAssetViaProxy,
   fetchRelease,
@@ -102,6 +103,65 @@ function sharedSelection(): { tag: string; network: Network; chains: ChainId[] }
   return { tag, network, chains: chainsOf(network).filter((c) => named.includes(c)) }
 }
 
+/** The proposal that already carries a built upgrade's call, matched by the whitelisted hash. */
+const existingFor = (built: BuiltUpgrade, proposals: Proposal[]) =>
+  proposals.find((p) => p.network === built.network && p.whitelist?.hash === built.proposal.hash)
+
+/** Why the selected account should not open the Fellowship referendum, if anything. */
+function fellowshipBlock(
+  existing: Proposal | undefined,
+  status: AccountStatus | undefined,
+): string | null {
+  if (existing?.fellowship)
+    return `Already open as Fellowship referendum #${existing.fellowship.index}.`
+  if (existing?.whitelist?.whitelisted) return "The Fellowship has already whitelisted this call."
+  if (status && (status.rank ?? -1) < FELLOWSHIP_SUBMIT_RANK)
+    return (
+      `Needs a Fellowship member of rank ${FELLOWSHIP_SUBMIT_RANK} or higher. ` +
+      (status.rank === null
+        ? "The selected account is not a member."
+        : `The selected account has rank ${status.rank}.`)
+    )
+  return null
+}
+
+/**
+ * Offered when upgrades for more than one network are built and none of their Fellowship
+ * referenda is open yet: one signature opens them all.
+ */
+function AllFellowship(props: {
+  builts: BuiltUpgrade[]
+  proposals: Proposal[]
+  statuses: AccountStatus[]
+  onSubmitted: () => void
+}) {
+  const wallet = useWallet()
+  const status = props.statuses.find((s) => s.address === wallet.selected?.address)
+  const blocks = props.builts.map((b) => fellowshipBlock(existingFor(b, props.proposals), status))
+  // If any of them is open already, the remaining one is submitted from its own section.
+  if (
+    props.builts.length < 2 ||
+    props.builts.some((b) => {
+      const existing = existingFor(b, props.proposals)
+      return existing?.fellowship || existing?.whitelist?.whitelisted
+    })
+  )
+    return null
+  const names = props.builts.map((b) => NETWORKS[b.network].name)
+  return (
+    <SubmitStep
+      title={`Fellowship referenda for ${formatList(names)}`}
+      detail={
+        "On Collectives, in one transaction. It does the same as the Fellowship step of each " +
+        "network above, so use one or the other."
+      }
+      blocked={blocks.find((b) => b !== null) ?? null}
+      makeTx={() => fellowshipSubmitAllTx(props.builts)}
+      onSubmitted={props.onSubmitted}
+    />
+  )
+}
+
 function Result(props: {
   built: BuiltUpgrade
   proposals: Proposal[]
@@ -116,21 +176,10 @@ function Result(props: {
   const [copied, setCopied] = useState(false)
   const status = props.statuses.find((s) => s.address === wallet.selected?.address)
   // The same upgrade may already be on its way: referenda are matched by the whitelisted hash.
-  const existing = props.proposals.find(
-    (p) => p.network === network && p.whitelist?.hash === built.proposal.hash,
-  )
+  const existing = existingFor(built, props.proposals)
   const names = built.runtimes.map((r) => CHAINS[r.chain].name)
 
-  const fellowshipBlocked = existing?.fellowship
-    ? `Already open as Fellowship referendum #${existing.fellowship.index}.`
-    : existing?.whitelist?.whitelisted
-      ? "The Fellowship has already whitelisted this call."
-      : status && (status.rank ?? -1) < FELLOWSHIP_SUBMIT_RANK
-        ? `Needs a Fellowship member of rank ${FELLOWSHIP_SUBMIT_RANK} or higher. ` +
-          (status.rank === null
-            ? "The selected account is not a member."
-            : `The selected account has rank ${status.rank}.`)
-        : null
+  const fellowshipBlocked = fellowshipBlock(existing, status)
   const publicBlocked = existing?.open
     ? `Already open as public referendum #${existing.open.index}.`
     : status && status.free[assetHub] < built.submissionDeposit
@@ -228,6 +277,8 @@ function NetworkUpgrade(props: {
   loaded: Loaded
   /** Chains to select at first, from a shared link. The default is every chain that is behind. */
   preselect: ChainId[] | null
+  /** Told whenever the built upgrade changes, with null when it is discarded. */
+  onBuilt: (built: BuiltUpgrade | null) => void
   proposals: Proposal[]
   statuses: AccountStatus[]
   onSubmitted: () => void
@@ -243,7 +294,12 @@ function NetworkUpgrade(props: {
           .map((p) => p.chain),
       ),
   )
-  const [built, setBuilt] = useState<BuiltUpgrade | null>(null)
+  const [built, setBuiltHere] = useState<BuiltUpgrade | null>(null)
+  const { onBuilt } = props
+  const setBuilt = (next: BuiltUpgrade | null) => {
+    setBuiltHere(next)
+    onBuilt(next)
+  }
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -332,6 +388,7 @@ export function ReleaseWizard(props: {
   const [shared] = useState(sharedSelection)
   const [input, setInput] = useState(shared?.tag ?? "")
   const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [builts, setBuilts] = useState<Partial<Record<Network, BuiltUpgrade>>>({})
   // A shared link loads its release right away.
   const [busy, setBusy] = useState(shared !== null)
   const [error, setError] = useState<string | null>(null)
@@ -349,6 +406,7 @@ export function ReleaseWizard(props: {
     setBusy(true)
     setError(null)
     setLoaded(null)
+    setBuilts({})
     void show(readRelease(tag))
   }
 
@@ -434,11 +492,18 @@ export function ReleaseWizard(props: {
                       : []
                     : null
                 }
+                onBuilt={(built) => setBuilts((all) => ({ ...all, [network]: built ?? undefined }))}
                 proposals={props.proposals}
                 statuses={props.statuses}
                 onSubmitted={props.onSubmitted}
               />
             ))}
+            <AllFellowship
+              builts={NETWORK_IDS.flatMap((n) => builts[n] ?? [])}
+              proposals={props.proposals}
+              statuses={props.statuses}
+              onSubmitted={props.onSubmitted}
+            />
           </div>
         </div>
       )}

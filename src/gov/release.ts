@@ -333,6 +333,19 @@ export async function fellowshipSubmitTx(built: Pick<BuiltUpgrade, "calls">) {
 }
 
 /**
+ * One transaction that opens the Fellowship referenda of several upgrades, on Collectives. It
+ * either opens all of them or none.
+ */
+export async function fellowshipSubmitAllTx(builts: Pick<BuiltUpgrade, "calls">[]) {
+  const api = collectivesApi()
+  const encoded = builts.flatMap(({ calls }) =>
+    [calls.fellowship_preimage, calls.fellowship_referendum].filter((c) => c != null),
+  )
+  const txs = await Promise.all(encoded.map((c) => api.txFromCallData(fromHex(c.encoded))))
+  return api.tx.Utility.batch_all({ calls: txs.map((tx) => tx.decodedCall) })
+}
+
+/**
  * The transaction that opens the public referendum, on the network's Asset Hub. It notes the
  * preimage in the same batch, unless the preimage is already on chain.
  */
