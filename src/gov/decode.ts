@@ -4,7 +4,16 @@
 
 import { Blake2256 } from "@polkadot-api/substrate-bindings"
 import { toHex } from "polkadot-api/utils"
-import { chainByParaId, type ChainId, CHAINS, decodeCallData } from "../chains"
+import {
+  chainByParaId,
+  type ChainId,
+  CHAINS,
+  decodeCallData,
+  NETWORK_IDS,
+  NETWORKS,
+  type Network,
+  relayOf,
+} from "../chains"
 
 /** Where a call executes: one of the system chains, or somewhere we can only describe. */
 export type ChainRef = { id: ChainId } | { external: string }
@@ -30,7 +39,10 @@ export interface CallNode {
 }
 
 /** Display name of the chain, or the description of a place outside the system. */
-export const chainLabel = (ref: ChainRef) => ("id" in ref ? CHAINS[ref.id].name : ref.external)
+export const chainLabel = (ref: ChainRef) =>
+  "id" in ref
+    ? `${CHAINS[ref.id].network === "kusama" ? "Kusama " : ""}${CHAINS[ref.id].name}`
+    : ref.external
 
 /** BLAKE2b-256 hash of the bytes, as hex with a `0x` prefix. */
 export const blake2Hex = (bytes: Uint8Array) => toHex(Blake2256(bytes))
@@ -43,17 +55,26 @@ const isCall = (v: unknown): v is { type: string; value: Tagged } =>
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Uint8Array)
 
+/** Why a call is undecoded when its network was left out of the decoding on purpose. */
+export const NOT_LOADED = "Not loaded yet"
+
 /**
  * Decode call data against the live runtime of the chain, and follow every call it dispatches, on
  * that chain or over XCM. Never throws: a call that cannot be decoded becomes a node with
- * `undecoded` set.
+ * `undecoded` set. Calls on a chain of a network in `skip` are left undecoded without connecting
+ * to it, with `NOT_LOADED` as the reason.
  */
-export async function decodeCall(chain: ChainRef, bytes: Uint8Array): Promise<CallNode> {
+export async function decodeCall(
+  chain: ChainRef,
+  bytes: Uint8Array,
+  skip: Network[] = [],
+): Promise<CallNode> {
   if (!("id" in chain))
     return failed(chain, bytes, `Calls on ${chain.external} are not decoded yet`)
+  if (skip.includes(CHAINS[chain.id].network)) return failed(chain, bytes, NOT_LOADED)
   try {
     const decoded = await decodeCallData(chain.id, bytes)
-    const node = await fromDecoded(chain, decoded)
+    const node = await fromDecoded(chain, decoded, skip)
     node.bytes = bytes
     return node
   } catch (e) {
@@ -74,6 +95,7 @@ const failed = (chain: ChainRef, bytes: Uint8Array, reason: string): CallNode =>
 async function fromDecoded(
   chain: ChainRef,
   decoded: { type: string; value: Tagged },
+  skip: Network[],
 ): Promise<CallNode> {
   const args = decoded.value.value
   const node: CallNode = {
@@ -85,46 +107,52 @@ async function fromDecoded(
   }
   if (!isRecord(args)) return node
 
+  // The children are decoded at the same time, since each may wait on a different chain. Their
+  // order is kept.
+  const children: Promise<CallNode[]>[] = []
+  const one = (inner: { type: string; value: Tagged }) =>
+    fromDecoded(chain, inner, skip).then((child) => [child])
+
   // Calls nested on the same chain: by convention these arguments are named `call` or `calls`.
   for (const [key, value] of Object.entries(args)) {
-    if (key === "calls" && Array.isArray(value)) {
-      for (const inner of value)
-        if (isCall(inner)) node.children.push(await fromDecoded(chain, inner))
-    } else if (isCall(value) && (key === "call" || key.endsWith("_call"))) {
-      node.children.push(await fromDecoded(chain, value))
-    }
+    if (key === "calls" && Array.isArray(value)) children.push(...value.filter(isCall).map(one))
+    else if (isCall(value) && (key === "call" || key.endsWith("_call"))) children.push(one(value))
   }
 
   // XCM programs: `send` executes them at `dest`, `execute` locally.
   const message = args.message
   if (isTagged(message) && Array.isArray(message.value)) {
     const target = "dest" in args ? resolveLocation(chain, versioned(args.dest)) : chain
-    node.children.push(...(await walkXcm(target, message.value)))
+    children.push(walkXcm(target, message.value, skip))
   }
+  node.children = (await Promise.all(children)).flat()
   return node
 }
 
 /** Find every call an XCM program dispatches, following onward transfers to further chains. */
-async function walkXcm(chain: ChainRef, instructions: unknown[]): Promise<CallNode[]> {
-  const out: CallNode[] = []
-  for (const instruction of instructions) {
-    if (!isTagged(instruction) || !isRecord(instruction.value)) continue
+async function walkXcm(
+  chain: ChainRef,
+  instructions: unknown[],
+  skip: Network[],
+): Promise<CallNode[]> {
+  const found = instructions.map(async (instruction): Promise<CallNode[]> => {
+    if (!isTagged(instruction) || !isRecord(instruction.value)) return []
     const value = instruction.value
     if (instruction.type === "Transact") {
       const bytes = callBytes(value.call)
-      if (!bytes) continue
-      const node = await decodeCall(chain, bytes)
+      if (!bytes) return []
+      const node = await decodeCall(chain, bytes, skip)
       node.xcmOriginKind = isTagged(value.origin_kind) ? value.origin_kind.type : undefined
-      out.push(node)
-      continue
+      return [node]
     }
     // Instructions that forward a nested program to another location.
     const nested = value.remote_xcm ?? value.xcm
     const destination = value.destination ?? value.dest
     if (Array.isArray(nested) && destination !== undefined)
-      out.push(...(await walkXcm(resolveLocation(chain, destination), nested)))
-  }
-  return out
+      return walkXcm(resolveLocation(chain, destination), nested, skip)
+    return []
+  })
+  return (await Promise.all(found)).flat()
 }
 
 function callBytes(call: unknown): Uint8Array | undefined {
@@ -146,31 +174,28 @@ export function resolveLocation(from: ChainRef, location: unknown): ChainRef {
     !isTagged(interior) || interior.type === "Here"
       ? []
       : ((Array.isArray(interior.value) ? interior.value : [interior.value]) as Tagged[])
-  const fromRelay = CHAINS[from.id].paraId === null
+  const { network, paraId } = CHAINS[from.id]
+  const fromRelay = paraId === null
 
-  const para = (n: unknown): ChainRef => {
-    const id = chainByParaId(Number(n))
-    return id ? { id } : { external: `Polkadot parachain ${n}` }
+  const within = (net: Network, rest: Tagged[]): ChainRef => {
+    if (rest.length === 0) return { id: relayOf(net) }
+    if (rest.length !== 1 || rest[0].type !== "Parachain") return unknown
+    const id = chainByParaId(net, Number(rest[0].value))
+    return id ? { id } : { external: `${NETWORKS[net].name} parachain ${rest[0].value}` }
   }
 
-  if (parents === 0) {
-    if (junctions.length === 0) return from
-    if (fromRelay && junctions.length === 1 && junctions[0].type === "Parachain")
-      return para(junctions[0].value)
-  }
-  if (parents === 1 && !fromRelay) {
-    if (junctions.length === 0) return { id: "relay" }
-    if (junctions.length === 1 && junctions[0].type === "Parachain") return para(junctions[0].value)
-  }
-  // Another consensus system, reached over a bridge.
-  const [first, second] = junctions
-  if (first?.type === "GlobalConsensus" && isTagged(first.value)) {
-    const network = first.value.type
-    if (!second) return { external: network }
-    if (second.type === "Parachain") {
-      const name = Number(second.value) === 1000 ? "Asset Hub" : `parachain ${second.value}`
-      return { external: `${network} ${name}` }
-    }
+  if (parents === 0 && junctions.length === 0) return from
+  if (parents === 0 && fromRelay) return within(network, junctions)
+  if (parents === 1 && !fromRelay) return within(network, junctions)
+
+  // Another consensus system, reached over a bridge. The path climbs out of this network first.
+  const [first, ...rest] = junctions
+  const climbs = parents === (fromRelay ? 1 : 2)
+  if (climbs && first?.type === "GlobalConsensus" && isTagged(first.value)) {
+    const consensus = first.value.type
+    const other = NETWORK_IDS.find((n) => NETWORKS[n].consensus === consensus)
+    if (other) return within(other, rest)
+    return { external: rest.length === 0 ? consensus : `a chain of ${consensus}` }
   }
   return unknown
 }

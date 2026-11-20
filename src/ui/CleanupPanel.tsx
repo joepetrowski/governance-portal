@@ -1,7 +1,7 @@
-import { RELAY_BLOCK_MS } from "../chains"
+import { NETWORKS, RELAY_BLOCK_MS } from "../chains"
 import { type Cleanup, cleanupTx, MAX_REMOVALS } from "../gov/cleanup"
 import { type Account, useWallet } from "../wallet"
-import { formatDateTime, formatDot, shortAddress } from "./format"
+import { formatBalance, formatDateTime, shortAddress } from "./format"
 import { choice, TxStatus, useSubmit } from "./tx"
 
 /** One account's stale votes and lock, with the button that clears them. */
@@ -12,20 +12,24 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
     formatDateTime(cleanup.loadedAt + (block - cleanup.now) * RELAY_BLOCK_MS)
   const count = cleanup.stale.length
   const freed = cleanup.lockedNow - cleanup.lockedAfter
+  const amount = (planck: bigint) => formatBalance(planck, cleanup.network)
 
   return (
     <li className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="text-sm">
-          <p className="font-medium">{account.name ?? shortAddress(account.address)}</p>
+          <p className="font-medium">
+            {account.name ?? shortAddress(account.address)}{" "}
+            <span className="font-normal text-zinc-500">on {NETWORKS[cleanup.network].name}</span>
+          </p>
           <p className="mt-1 text-zinc-600 dark:text-zinc-400">
             {count === 0
               ? "No votes on finished referenda."
               : `${count} ${count === 1 ? "vote" : "votes"} on finished referenda.`}{" "}
             {cleanup.lockedNow === 0n
               ? "Nothing is locked by voting."
-              : `${formatDot(cleanup.lockedNow)} is locked by voting, and ${
-                  freed > 0n ? formatDot(freed) : "none"
+              : `${amount(cleanup.lockedNow)} is locked by voting, and ${
+                  freed > 0n ? amount(freed) : "none"
                 } of it can be unlocked now.`}
             {cleanup.lockedAfter > 0n &&
               cleanup.nextUnlock !== null &&
@@ -104,7 +108,7 @@ export function CleanupPanel(props: { cleanups: Cleanup[]; onCleaned: () => void
       <ul className="mt-3 space-y-3">
         {pending.map(({ cleanup, account }) => (
           <AccountCleanup
-            key={cleanup.address}
+            key={`${cleanup.network}-${cleanup.address}`}
             cleanup={cleanup}
             account={account}
             onCleaned={props.onCleaned}

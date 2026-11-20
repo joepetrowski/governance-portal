@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import type { Stage } from "../gov/load"
-import { duration, formatDot, percent, shortAddress } from "./format"
+import { duration, formatBalance, percent, shortAddress } from "./format"
 
 function statusLine(stage: Stage): { label: string; detail: string } {
   const { status, now, blockMs } = stage
@@ -91,7 +91,7 @@ function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
       <span className="text-zinc-600 dark:text-zinc-400">Decision deposit</span>
       {placed ? (
         <span>
-          {formatDot(placed.amount)} placed by{" "}
+          {formatBalance(placed.amount, stage.network)} placed by{" "}
           <span className="font-mono" title={placed.who}>
             {shortAddress(placed.who)}
           </span>
@@ -99,7 +99,7 @@ function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
       ) : (
         <span className="flex flex-wrap items-center justify-end gap-2">
           <span className="font-medium text-amber-700 dark:text-amber-400">
-            {formatDot(required)} not placed
+            {formatBalance(required, stage.network)} not placed
           </span>
           {action}
         </span>

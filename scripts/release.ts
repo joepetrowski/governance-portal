@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import * as lib from "opengov"
 import { toHex } from "polkadot-api/utils"
+import { CHAINS, NETWORK_IDS } from "../src/chains"
 import { loadSnapshot } from "../src/gov/load"
 import {
   buildUpgrade,
@@ -21,39 +22,42 @@ const tag = parseTag(process.argv[2] ?? "") ?? "latest"
 const release = await fetchRelease(tag)
 console.log("release", release.tag, release.publishedAt)
 const plans = await planRelease(lib, release)
-for (const p of plans)
-  console.log(
-    "  ",
-    p.chain,
-    p.file,
-    p.asset ? "found" : "MISSING",
-    p.currentVersion,
-    "->",
-    p.newVersion,
-  )
-
-const direct = async (t: string, file: string) =>
-  new Uint8Array(
-    await (
-      await fetch(`https://github.com/polkadot-fellows/runtimes/releases/download/${t}/${file}`)
-    ).arrayBuffer(),
-  )
-const built = await buildUpgrade(lib, release, plans, direct, (d, n) =>
-  console.log(`   downloaded ${d} of ${n}`),
-)
-console.log("proposal hash", built.proposal.hash)
-console.log("public preimage", built.calls.public_preimage_hash, built.calls.public_preimage_len)
+const direct = async (t: string, file: string) => {
+  const url = `https://github.com/polkadot-fellows/runtimes/releases/download/${t}/${file}`
+  return new Uint8Array(await (await fetch(url)).arrayBuffer())
+}
 const snap = await loadSnapshot()
-const existing = snap.proposals.find((p) => p.whitelist?.hash === built.proposal.hash)
-console.log("already proposed:", existing ? `${existing.id} (${existing.title})` : "no")
-console.log(
-  "fellowship tx",
-  toHex(await (await fellowshipSubmitTx(built)).getEncodedData()).slice(0, 60),
-  "…",
-)
-console.log(
-  "public tx",
-  toHex(await (await publicSubmitTx(built)).getEncodedData()).slice(0, 60),
-  "…",
-)
+
+for (const network of NETWORK_IDS) {
+  console.log(`\n== ${network}`)
+  const mine = plans.filter((p) => CHAINS[p.chain].network === network)
+  for (const p of mine)
+    console.log(
+      "  ",
+      p.chain,
+      p.file,
+      p.asset ? "found" : "MISSING",
+      p.currentVersion,
+      "->",
+      p.newVersion,
+    )
+  const built = await buildUpgrade(
+    lib,
+    release,
+    network,
+    mine.filter((p) => p.asset),
+    direct,
+  )
+  console.log("proposal hash", built.proposal.hash)
+  console.log("public preimage", built.calls.public_preimage_hash, built.calls.public_preimage_len)
+  console.log("submission deposit", built.submissionDeposit)
+  const existing = snap.proposals.find(
+    (p) => p.network === network && p.whitelist?.hash === built.proposal.hash,
+  )
+  console.log("already proposed:", existing ? `${existing.id} (${existing.title})` : "no")
+  const fellowship = await (await fellowshipSubmitTx(built)).getEncodedData()
+  console.log("fellowship tx", toHex(fellowship).slice(0, 60), "…")
+  const open = await (await publicSubmitTx(built)).getEncodedData()
+  console.log("public tx", toHex(open).slice(0, 60), "…")
+}
 process.exit(0)

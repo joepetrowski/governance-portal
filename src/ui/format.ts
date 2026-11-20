@@ -1,3 +1,5 @@
+import { type Network, NETWORKS } from "../chains"
+
 /** A fraction in [0, 1] as a percentage, with more digits the smaller it is. */
 export const percent = (fraction: number) => {
   const pct = fraction * 100
@@ -52,22 +54,32 @@ export function formatDateTime(timestamp: number): string {
 export const formatList = (items: string[]) =>
   new Intl.ListFormat("en-US", { type: "conjunction" }).format(items)
 
-/** Decimal places of DOT: 1 DOT is 10^10 planck. */
-export const DOT_DECIMALS = 10
-const PLANCK_PER_DOT = 10n ** BigInt(DOT_DECIMALS)
+const unit = (network: Network) => 10n ** BigInt(NETWORKS[network].decimals)
 
-/** A compact amount such as "26.4K DOT". */
-export const formatDot = (planck: bigint) =>
-  `${new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(
-    Number(planck / PLANCK_PER_DOT) + Number(planck % PLANCK_PER_DOT) / Number(PLANCK_PER_DOT),
-  )} DOT`
+/**
+ * A compact amount of a network's token, such as "26.4K DOT". Amounts below one keep two
+ * significant digits, so that a small deposit does not read as zero.
+ */
+export function formatBalance(planck: bigint, network: Network): string {
+  const amount =
+    Number(planck / unit(network)) + Number(planck % unit(network)) / Number(unit(network))
+  const digits =
+    amount > 0 && amount < 1 ? { maximumSignificantDigits: 2 } : { maximumFractionDigits: 1 }
+  const compact = new Intl.NumberFormat("en-US", { notation: "compact", ...digits })
+  return `${compact.format(amount)} ${NETWORKS[network].token}`
+}
 
-/** Parse a decimal DOT amount typed by a user. Returns null if it is not a valid amount. */
-export function parseDot(input: string): bigint | null {
-  const match = /^(\d+)(?:\.(\d{0,10}))?$/.exec(input.trim().replaceAll(",", ""))
+/**
+ * Parse a decimal amount of a network's token typed by a user. Returns null if it is not a valid
+ * amount.
+ */
+export function parseBalance(input: string, network: Network): bigint | null {
+  const { decimals } = NETWORKS[network]
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(input.trim().replaceAll(",", ""))
   if (!match) return null
   const [, whole, fraction = ""] = match
-  return BigInt(whole) * PLANCK_PER_DOT + BigInt(fraction.padEnd(DOT_DECIMALS, "0"))
+  if (fraction.length > decimals) return null
+  return BigInt(whole) * unit(network) + BigInt(fraction.padEnd(decimals, "0"))
 }
 
 /** An address shortened to its first and last six characters. */

@@ -20,7 +20,7 @@ for (const address of addresses) {
   for (const [key, vote] of Object.entries(status.votes))
     if (vote.type !== "none") console.log("   ", key, JSON.stringify(vote))
 }
-console.log("lock days", await loadLockDays())
+console.log("lock days", await loadLockDays("polkadot"))
 
 const open = stages.find((s) => s.body === "open")
 const fellowship = stages.find((s) => s.body === "fellowship")

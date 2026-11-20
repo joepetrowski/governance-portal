@@ -11,7 +11,9 @@ export function useAccountStatuses(addresses: string[], snapshot: Snapshot | nul
     if (!snapshot || key === "") return
     let canceled = false
     const stages = snapshot.proposals.flatMap((p) => [p.fellowship, p.open]).filter((s) => !!s)
-    Promise.all(key.split(",").map((address) => loadAccountStatus(address, stages)))
+    Promise.all(
+      key.split(",").map((address) => loadAccountStatus(address, stages, snapshot.pending)),
+    )
       .then((next) => {
         if (!canceled) setStatuses(next)
       })

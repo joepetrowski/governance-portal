@@ -1,11 +1,11 @@
-// Votes left behind on finished public referenda, and the balance they keep locked. Everything is
-// read from chain state: `ConvictionVoting.VotingFor` is keyed by account first, so one prefix
-// query lists every vote an account still has on record.
+// Votes left behind on finished public referenda of a network, and the balance they keep locked.
+// Everything is read from chain state: `ConvictionVoting.VotingFor` is keyed by account first, so
+// one prefix query lists every vote an account still has on record.
 //
 // Fellowship votes are not covered. They lock nothing, and their storage is keyed by referendum.
 
 import { ConvictionVotingVoteAccountVote, MultiAddress } from "@polkadot-api/descriptors"
-import { assetHubApi } from "../chains"
+import { assetHubApi, type Network } from "../chains"
 import { describeOpenVote } from "./votes"
 
 /** Vote removals per transaction, which keeps the batch well inside a block. */
@@ -35,6 +35,8 @@ export interface StaleVote {
  * Everything one account can clear now: its stale votes and the voting locks that can be lowered.
  */
 export interface Cleanup {
+  /** The network whose Asset Hub holds the votes and locks. */
+  network: Network
   /** The account. */
   address: string
   /** Votes on finished referenda, newest first. */
@@ -70,8 +72,8 @@ const max = (values: bigint[]) => values.reduce((a, b) => (b > a ? b : a), 0n)
  * Read an account's stale votes and voting locks from Asset Hub, and work out what clearing them
  * would unlock.
  */
-export async function loadCleanup(address: string): Promise<Cleanup> {
-  const api = assetHubApi()
+export async function loadCleanup(address: string, network: Network): Promise<Cleanup> {
+  const api = assetHubApi(network)
   const [entries, classLocks, now, period, trackList] = await Promise.all([
     api.query.ConvictionVoting.VotingFor.getEntries(address),
     api.query.ConvictionVoting.ClassLocksFor.getValue(address),
@@ -127,7 +129,7 @@ export async function loadCleanup(address: string): Promise<Cleanup> {
             priorAmount = priorAmount > vote.value.balance ? priorAmount : vote.value.balance
           }
         }
-        const described = describeOpenVote(vote)
+        const described = describeOpenVote(vote, network)
         stale.push({
           index,
           trackId,
@@ -159,6 +161,7 @@ export async function loadCleanup(address: string): Promise<Cleanup> {
   stale.sort((a, b) => b.index - a.index)
 
   return {
+    network,
     address,
     stale,
     tracks,
@@ -175,7 +178,7 @@ export async function loadCleanup(address: string): Promise<Cleanup> {
  * Removing a vote that is still locked loses nothing: the lock stays until it expires.
  */
 export function cleanupTx(cleanup: Cleanup) {
-  const api = assetHubApi()
+  const api = assetHubApi(cleanup.network)
   const removals = cleanup.stale.slice(0, MAX_REMOVALS)
   // Tracks with removals in this batch, and tracks whose lock is already too high.
   const tracks = new Set([

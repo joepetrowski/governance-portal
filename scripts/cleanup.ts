@@ -16,7 +16,7 @@ if (addresses.length === 0) {
 }
 let shown = 0
 for (const address of addresses) {
-  const cleanup = await loadCleanup(address)
+  const cleanup = await loadCleanup(address, "polkadot")
   if (process.argv.length <= 2 && (cleanup.stale.length < 20 || shown >= 4)) continue
   shown++
   console.log(address, show({ ...cleanup, stale: cleanup.stale.length }))

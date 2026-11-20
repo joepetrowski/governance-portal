@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { type Network, NETWORKS } from "../chains"
 import type { Stage } from "../gov/load"
 import {
   type AccountStatus,
@@ -10,7 +11,7 @@ import {
   stageKey,
 } from "../gov/votes"
 import { type Account, useWallet } from "../wallet"
-import { formatDot, parseDot, shortAddress } from "./format"
+import { formatBalance, parseBalance, shortAddress } from "./format"
 import { choice, TxStatus, useSubmit } from "./tx"
 
 const field =
@@ -63,7 +64,8 @@ function FellowshipVote(props: {
   )
 }
 
-let lockDaysCache: Promise<number[]> | undefined
+/** Lock durations per network, read once. */
+const lockDaysCache: Partial<Record<Network, Promise<number[]>>> = {}
 
 function OpenVote(props: {
   stage: Stage
@@ -72,6 +74,9 @@ function OpenVote(props: {
   onVoted: () => void
 }) {
   const { stage, account, status } = props
+  const { network } = stage
+  const { token } = NETWORKS[network]
+  const balance = status.balance[network]
   const { state, busy, submit } = useSubmit(props.onVoted)
   // Nothing is selected until the user picks a direction, unless the account has already voted,
   // in which case its vote on chain is shown as the selection.
@@ -81,23 +86,23 @@ function OpenVote(props: {
   const [lockDays, setLockDays] = useState<number[] | null>(null)
 
   useEffect(() => {
-    lockDaysCache ??= loadLockDays()
-    lockDaysCache.then(setLockDays).catch(() => (lockDaysCache = undefined))
-  }, [])
+    const cached = (lockDaysCache[network] ??= loadLockDays(network))
+    cached.then(setLockDays).catch(() => delete lockDaysCache[network])
+  }, [network])
 
   const mine = status.votes[stageKey(stage)]
   if (mine?.type === "delegating") return null
   const direction: Direction | null =
     chosen ?? (mine?.type === "voted" && mine.direction !== "split" ? mine.direction : null)
 
-  const parsed = parseDot(amount)
+  const parsed = parseBalance(amount, network)
   const problem =
     amount === ""
       ? null
       : parsed === null || parsed === 0n
-        ? "Enter an amount in DOT."
-        : parsed > status.balance
-          ? `This account holds ${formatDot(status.balance)}.`
+        ? `Enter an amount in ${token}.`
+        : parsed > balance
+          ? `This account holds ${formatBalance(balance, network)}.`
           : null
   const ready = direction !== null && parsed !== null && parsed > 0n && problem === null && !busy
 
@@ -123,7 +128,7 @@ function OpenVote(props: {
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="text-sm">
-          <span className="sr-only">Amount in DOT</span>
+          <span className="sr-only">Amount in {token}</span>
           <input
             className={`${field} w-32`}
             inputMode="decimal"
@@ -131,7 +136,7 @@ function OpenVote(props: {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />{" "}
-          DOT
+          {token}
         </label>
         {direction !== "abstain" && (
           <label className="text-sm">
@@ -155,7 +160,8 @@ function OpenVote(props: {
         </button>
       </div>
       <p className="mt-1 text-xs text-zinc-500">
-        {problem ?? `Balance ${formatDot(status.balance)}. A new vote replaces an earlier one.`}
+        {problem ??
+          `Balance ${formatBalance(balance, network)}. A new vote replaces an earlier one.`}
       </p>
       <TxStatus state={state} />
     </form>

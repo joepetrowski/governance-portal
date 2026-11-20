@@ -1,4 +1,6 @@
-// Turn a Fellowship runtimes release into the referenda that enact it.
+// Turn a Fellowship runtimes release into the referenda that enact it. A release holds the runtimes
+// of both networks, and each network is upgraded by its own pair of referenda: a public one on its
+// Asset Hub, and one of the Polkadot Fellowship, which whitelists Kusama's call over the bridge.
 //
 // The calls are built by the `opengov` library (the same code as the `opengov` command line tool,
 // compiled to WebAssembly). That library encodes against metadata compiled into it, so every call
@@ -7,7 +9,16 @@
 
 import type * as Opengov from "opengov"
 import { fromHex, toHex } from "polkadot-api/utils"
-import { assetHubApi, CHAIN_IDS, CHAINS, type ChainId, collectivesApi, getClient } from "../chains"
+import {
+  assetHubApi,
+  CHAIN_IDS,
+  CHAINS,
+  type ChainId,
+  collectivesApi,
+  getClient,
+  type Network,
+  NETWORKS,
+} from "../chains"
 import { type CallNode, decodeCall, isCallTo, walk } from "./decode"
 
 /**
@@ -101,7 +112,9 @@ async function liveSpecVersion(chain: ChainId): Promise<number | null> {
   }
 }
 
-/** For each chain of the system: the runtime the release offers and the version it runs now. */
+/**
+ * For each chain of both networks: the runtime the release offers and the version it runs now.
+ */
 export async function planRelease(lib: OpengovLib, release: Release): Promise<ChainPlan[]> {
   const [major, minor, patch] = release.tag.slice(1).split(".").map(Number)
   const newVersion = major * 1_000_000 + minor * 1_000 + patch
@@ -145,16 +158,23 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * runtimes.
  */
 export interface BuiltUpgrade {
+  /** The network being upgraded. */
+  network: Network
   /** Tag of the release the runtimes come from. */
   tag: string
   /** The chains being upgraded and the hash of each new runtime. */
   runtimes: { chain: ChainId; codeHash: string }[]
-  /** The Asset Hub call that the Fellowship whitelists and the public referendum dispatches. */
+  /**
+   * The call on the network's Asset Hub that the Fellowship whitelists and the public referendum
+   * dispatches.
+   */
   proposal: Opengov.NetworkCall
   /** The proposal, decoded against the live runtimes. */
   tree: CallNode
   /** The referendum submissions and preimages, as `opengov` built them. */
   calls: Opengov.ReferendumCalls
+  /** What submitting the public referendum reserves on the Asset Hub, besides the preimage. */
+  submissionDeposit: bigint
 }
 
 const hexArg = (node: CallNode, key: string) => {
@@ -163,16 +183,25 @@ const hexArg = (node: CallNode, key: string) => {
 }
 
 /**
- * Download the selected runtimes, hash them, and build the upgrade proposal and its referenda.
- * Throws unless the result, decoded against the live runtimes, is exactly the intended upgrade.
+ * Download the selected runtimes of one network, hash them, and build the upgrade proposal and its
+ * referenda. The chains are batched in the order of `CHAIN_IDS`, whatever the order of `plans`, so
+ * that the same selection always gives the same call hash. Throws unless the result, decoded
+ * against the live runtimes, is exactly the intended upgrade.
  */
 export async function buildUpgrade(
   lib: OpengovLib,
   release: Release,
-  plans: ChainPlan[],
+  network: Network,
+  selection: ChainPlan[],
   fetchAsset: FetchAsset,
   onProgress: (done: number, total: number) => void = () => {},
 ): Promise<BuiltUpgrade> {
+  const assetHub = NETWORKS[network].assetHub
+  const plans = [...selection].sort(
+    (a, b) => CHAIN_IDS.indexOf(a.chain) - CHAIN_IDS.indexOf(b.chain),
+  )
+  if (plans.some((p) => CHAINS[p.chain].network !== network))
+    throw new Error(`Not every selected chain belongs to ${NETWORKS[network].name}.`)
   let done = 0
   onProgress(0, plans.length)
   const runtimes = await Promise.all(
@@ -191,18 +220,20 @@ export async function buildUpgrade(
   )
 
   const proposal = lib.build_upgrade({
-    relay: "polkadot",
+    relay: network,
     runtimes: runtimes.map((r) => ({ network: CHAINS[r.chain].runtime, code_hash: r.codeHash })),
   })
   const calls = lib.referendum_calls({
     proposal: proposal.encoded,
-    network: "polkadot",
+    network,
     track: "whitelistedcaller",
     dispatch: { after: ENACT_AFTER },
+    // Kusama's call is whitelisted by the Polkadot Fellowship, over the bridge.
+    ...(network === "kusama" ? { fellowship_on_polkadot: true } : {}),
   })
 
   // Check 1: on the live runtimes, the proposal authorizes exactly these upgrades and nothing else.
-  const tree = await decodeCall({ id: "assetHub" }, fromHex(proposal.encoded))
+  const tree = await decodeCall({ id: assetHub }, fromHex(proposal.encoded))
   const nodes = [...walk(tree)]
   const leaves = nodes.filter((n) => n.children.length === 0)
   const authorized = leaves
@@ -220,7 +251,7 @@ export async function buildUpgrade(
         "The opengov library is probably out of date with a runtime.",
     )
 
-  // Check 2: the Fellowship referendum whitelists this proposal on Asset Hub.
+  // Check 2: the Fellowship referendum whitelists this proposal on the network's Asset Hub.
   if (!calls.fellowship_referendum || calls.whitelisted_call_hash !== proposal.hash)
     throw new Error("The generated Fellowship referendum does not whitelist the proposal.")
   const submit = await decodeCall(
@@ -243,7 +274,7 @@ export async function buildUpgrade(
       (n) =>
         isCallTo(n, "Whitelist", "whitelist_call") &&
         "id" in n.chain &&
-        n.chain.id === "assetHub" &&
+        n.chain.id === assetHub &&
         hexArg(n, "call_hash") === proposal.hash,
     )
   if (!isCallTo(submit, "FellowshipReferenda", "submit") || !whitelists)
@@ -251,7 +282,8 @@ export async function buildUpgrade(
       "The generated Fellowship referendum does not decode as expected on Collectives.",
     )
 
-  return { tag: release.tag, runtimes, proposal, tree, calls }
+  const submissionDeposit = await assetHubApi(network).constants.Referenda.SubmissionDeposit()
+  return { network, tag: release.tag, runtimes, proposal, tree, calls, submissionDeposit }
 }
 
 /** The transaction that opens the Fellowship referendum, on Collectives. */
@@ -264,11 +296,11 @@ export async function fellowshipSubmitTx(built: BuiltUpgrade) {
 }
 
 /**
- * The transaction that opens the public referendum, on Asset Hub. It notes the preimage in the
- * same batch, unless the preimage is already on chain.
+ * The transaction that opens the public referendum, on the network's Asset Hub. It notes the
+ * preimage in the same batch, unless the preimage is already on chain.
  */
 export async function publicSubmitTx(built: BuiltUpgrade) {
-  const api = assetHubApi()
+  const api = assetHubApi(built.network)
   const submit = await api.txFromCallData(fromHex(built.calls.public_referendum.encoded))
   const noted = await api.query.Preimage.RequestStatusFor.getValue(built.calls.public_preimage_hash)
   if (noted) return submit

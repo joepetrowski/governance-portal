@@ -1,7 +1,8 @@
+import { CHAINS, NETWORKS } from "../chains"
 import type { Stage } from "../gov/load"
 import { type AccountStatus, decisionDepositTx } from "../gov/votes"
 import { useWallet } from "../wallet"
-import { formatDot } from "./format"
+import { formatBalance } from "./format"
 import { choice, TxStatus, useSubmit } from "./tx"
 
 /** Places a missing decision deposit from the selected account. Any account may place it. */
@@ -18,14 +19,12 @@ export function DepositButton(props: {
   if (!account || !status) return null
 
   // The deposit is taken on the chain that hosts the referendum.
-  const [chain, free] =
-    stage.body === "fellowship"
-      ? ["Collectives", status.free.collectives]
-      : ["Asset Hub", status.free.assetHub]
+  const chain = stage.body === "fellowship" ? "collectives" : NETWORKS[stage.network].assetHub
+  const free = status.free[chain]
   if (free < stage.deposit.required)
     return (
       <span className="text-xs text-zinc-500">
-        The selected account has {formatDot(free)} free on {chain}.
+        The selected account has {formatBalance(free, stage.network)} free on {CHAINS[chain].name}.
       </span>
     )
   return (

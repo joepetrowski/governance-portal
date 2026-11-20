@@ -7,12 +7,24 @@ import {
   assetHubApi,
   COLLECTIVES_BLOCK_MS,
   collectivesApi,
+  CHAINS,
   getClient,
+  type Network,
+  NETWORK_IDS,
+  NETWORKS,
   RELAY_BLOCK_MS,
 } from "../chains"
-import { formatDot, formatList } from "../ui/format"
+import { formatBalance, formatList } from "../ui/format"
 import { type Curve, delay, threshold } from "./curves"
-import { blake2Hex, type CallNode, chainLabel, decodeCall, isCallTo, walk } from "./decode"
+import {
+  blake2Hex,
+  type CallNode,
+  chainLabel,
+  decodeCall,
+  isCallTo,
+  NOT_LOADED,
+  walk,
+} from "./decode"
 
 /** Public tracks shown for now: root, whitelisted_caller, staking_admin. */
 const OPEN_TRACKS = new Set([0, 1, 10])
@@ -27,9 +39,14 @@ export type StageStatus =
 
 /** One referendum, of the Fellowship or the public, as a step in a proposal's path to enactment. */
 export interface Stage {
-  /** Who votes: the Fellowship on Collectives, or token holders on Asset Hub. */
+  /**
+   * The network whose chain hosts the referendum. Fellowship referenda are on Polkadot, also when
+   * they whitelist a call for Kusama.
+   */
+  network: Network
+  /** Who votes: the Fellowship on Collectives, or token holders on the network's Asset Hub. */
   body: "fellowship" | "open"
-  /** Referendum index within its body. */
+  /** Referendum index within its body and network. */
   index: number
   /** Name of the track. */
   track: string
@@ -79,8 +96,10 @@ export interface Upgrade {
  * referendum that whitelists a call with the public referendum that dispatches it.
  */
 export interface Proposal {
-  /** Stable key built from the referendum indexes, such as "open-1973+fellowship-681". */
+  /** Stable key built from the referendum indexes, such as "polkadot-open-1973+fellowship-681". */
   id: string
+  /** The network the proposal acts on, which a Fellowship referendum reaches over the bridge. */
+  network: Network
   /** What the proposal does, in a line. Backticks mark code. */
   title: string
   /** An upgrade, another whitelisted call, or anything else. */
@@ -103,6 +122,13 @@ export interface Proposal {
 export interface Snapshot {
   /** Proposals, with upgrades and other whitelisted calls first. */
   proposals: Proposal[]
+  /** Networks whose public referenda could not be read, so their proposals are missing. */
+  unreachable: Network[]
+  /**
+   * Networks left out of this read on purpose, to be added by a later one. Their public referenda
+   * are missing, and calls on their chains are not decoded.
+   */
+  pending: Network[]
   /** Wall-clock time of the read, in milliseconds. */
   loadedAt: number
 }
@@ -165,6 +191,7 @@ function stageStatus(info: Ongoing, track: TrackInfo, now: number, a: number | n
 }
 
 function buildStage(
+  network: Network,
   body: Stage["body"],
   index: number,
   info: Ongoing,
@@ -179,6 +206,7 @@ function buildStage(
   const approval = { current: tally.approval, required: threshold(track.min_approval, x) }
   const support = { current: tally.support, required: threshold(track.min_support, x) }
   return {
+    network,
     body,
     index,
     track: trackName(track.name),
@@ -205,10 +233,49 @@ function buildStage(
 const ratio = (num: bigint, den: bigint) =>
   den === 0n ? 0 : Number((num * 1_000_000_000n) / den) / 1e9
 
-async function loadOpenStages(): Promise<Stage[]> {
-  const api = assetHubApi()
-  const [entries, tracks, now, issuance, inactive] = await Promise.all([
-    api.query.Referenda.ReferendumInfoFor.getEntries(),
+/** Referenda read per request when scanning for the open ones. */
+const SCAN_CHUNK = 64
+/** Slack added to the longest possible life of a referendum: a day of Relay Chain blocks. */
+const SCAN_MARGIN = 14_400
+
+/**
+ * The public referenda of a network that are still ongoing, without reading every referendum ever
+ * submitted. Indexes are scanned from the newest down. A referendum cannot stay open longer than
+ * the undeciding timeout plus the longest decision and confirmation periods, and indexes follow
+ * the order of submission, so the scan stops at the first referendum that ended longer ago than
+ * that: everything below it was submitted earlier still, and must have ended too.
+ */
+async function ongoingReferenda(network: Network, tracks: TrackInfo[], now: number) {
+  const api = assetHubApi(network)
+  const [count, timeout] = await Promise.all([
+    api.query.Referenda.ReferendumCount.getValue(),
+    api.constants.Referenda.UndecidingTimeout(),
+  ])
+  const longest = Math.max(...tracks.map((t) => t.decision_period + t.confirm_period))
+  const horizon = now - (timeout + longest + SCAN_MARGIN)
+
+  const ongoing: { index: number; info: unknown }[] = []
+  for (let top = count; top > 0; top -= SCAN_CHUNK) {
+    const indexes = Array.from({ length: Math.min(SCAN_CHUNK, top) }, (_, i) => top - 1 - i)
+    const values = await api.query.Referenda.ReferendumInfoFor.getValues(
+      indexes.map((i) => [i] as [number]),
+    )
+    let done = false
+    values.forEach((value, i) => {
+      if (!value) return
+      if (value.type === "Ongoing") return ongoing.push({ index: indexes[i], info: value.value })
+      // Every other state records the block at which the referendum ended, alone or first.
+      const ended = Array.isArray(value.value) ? value.value[0] : value.value
+      if (typeof ended === "number" && ended < horizon) done = true
+    })
+    if (done) break
+  }
+  return ongoing
+}
+
+async function loadOpenStages(network: Network): Promise<Stage[]> {
+  const api = assetHubApi(network)
+  const [tracks, now, issuance, inactive] = await Promise.all([
     api.constants.Referenda.Tracks(),
     // Public referenda count Relay Chain blocks.
     api.query.ParachainSystem.LastRelayChainBlockNumber.getValue(),
@@ -217,40 +284,37 @@ async function loadOpenStages(): Promise<Stage[]> {
   ])
   const trackInfo = new Map(tracks.map(([id, info]) => [id, info as TrackInfo]))
   const electorate = issuance - inactive
+  const entries = await ongoingReferenda(network, [...trackInfo.values()], now)
 
-  const stages: Stage[] = []
-  for (const { keyArgs, value } of entries) {
-    if (value.type !== "Ongoing" || !OPEN_TRACKS.has(value.value.track)) continue
-    const info = value.value as unknown as Ongoing & {
-      tally: { ayes: bigint; nays: bigint; support: bigint }
-    }
+  const stages = entries.map(async ({ index, info: raw }): Promise<Stage | null> => {
+    const info = raw as Ongoing & { tally: { ayes: bigint; nays: bigint; support: bigint } }
     const track = trackInfo.get(info.track)
-    if (!track) continue
+    if (!OPEN_TRACKS.has(info.track) || !track) return null
     const bytes = await proposalBytes(info.proposal, (key) =>
       api.query.Preimage.PreimageFor.getValue(key),
     )
     const { ayes, nays, support } = info.tally
-    stages.push(
-      buildStage(
-        "open",
-        keyArgs[0],
-        info,
-        track,
-        { now, blockMs: RELAY_BLOCK_MS },
-        {
-          approval: ayes + nays === 0n ? null : ratio(ayes, ayes + nays),
-          support: ratio(support, electorate),
-          ayes: formatDot(ayes),
-          nays: formatDot(nays),
-        },
-        bytes ? await decodeCall({ id: "assetHub" }, bytes) : null,
-      ),
+    return buildStage(
+      network,
+      "open",
+      index,
+      info,
+      track,
+      { now, blockMs: RELAY_BLOCK_MS },
+      {
+        approval: ayes + nays === 0n ? null : ratio(ayes, ayes + nays),
+        support: ratio(support, electorate),
+        ayes: formatBalance(ayes, network),
+        nays: formatBalance(nays, network),
+      },
+      bytes ? await decodeCall({ id: NETWORKS[network].assetHub }, bytes) : null,
     )
-  }
-  return stages
+  })
+  // Oldest first, as a full read of the storage map would give them.
+  return (await Promise.all(stages)).filter((s) => s !== null).reverse()
 }
 
-async function loadFellowshipStages(): Promise<Stage[]> {
+async function loadFellowshipStages(skip: Network[]): Promise<Stage[]> {
   const api = collectivesApi()
   const [entries, tracks, block, memberCounts] = await Promise.all([
     api.query.FellowshipReferenda.ReferendumInfoFor.getEntries(),
@@ -264,37 +328,35 @@ async function loadFellowshipStages(): Promise<Stage[]> {
   const trackInfo = new Map(tracks.map(([id, info]) => [id, info as TrackInfo]))
   const membersAtRank = new Map(memberCounts.map(({ keyArgs, value }) => [keyArgs[0], value]))
 
-  const stages: Stage[] = []
-  for (const { keyArgs, value } of entries) {
-    if (value.type !== "Ongoing") continue
+  const stages = entries.map(async ({ keyArgs, value }): Promise<Stage | null> => {
+    if (value.type !== "Ongoing") return null
     const info = value.value as unknown as Ongoing & {
       tally: { bare_ayes: number; ayes: number; nays: number }
     }
     const track = trackInfo.get(info.track)
-    if (!track) continue
+    if (!track) return null
     const bytes = await proposalBytes(info.proposal, (key) =>
       api.query.Preimage.PreimageFor.getValue(key),
     )
     const { bare_ayes, ayes, nays } = info.tally
     const eligible = membersAtRank.get(fellowshipMinRank(info.track)) ?? 0
-    stages.push(
-      buildStage(
-        "fellowship",
-        keyArgs[0],
-        info,
-        track,
-        { now: block, blockMs: COLLECTIVES_BLOCK_MS },
-        {
-          approval: ayes + nays === 0 ? null : ayes / (ayes + nays),
-          support: eligible === 0 ? 0 : bare_ayes / eligible,
-          ayes: `${ayes} (${bare_ayes} of ${eligible} members)`,
-          nays: String(nays),
-        },
-        bytes ? await decodeCall({ id: "collectives" }, bytes) : null,
-      ),
+    return buildStage(
+      "polkadot",
+      "fellowship",
+      keyArgs[0],
+      info,
+      track,
+      { now: block, blockMs: COLLECTIVES_BLOCK_MS },
+      {
+        approval: ayes + nays === 0 ? null : ayes / (ayes + nays),
+        support: eligible === 0 ? 0 : bare_ayes / eligible,
+        ayes: `${ayes} (${bare_ayes} of ${eligible} members)`,
+        nays: String(nays),
+      },
+      bytes ? await decodeCall({ id: "collectives" }, bytes, skip) : null,
     )
-  }
-  return stages
+  })
+  return (await Promise.all(stages)).filter((s) => s !== null)
 }
 
 async function proposalBytes(
@@ -323,11 +385,17 @@ function whitelistDispatch(stage: Stage): { hash: string; inner: CallNode | null
 }
 
 /** The hash a Fellowship referendum whitelists, and where. */
-function whitelistRequest(stage: Stage): { hash: string; on: CallNode["chain"] } | null {
+function whitelistRequest(
+  stage: Stage,
+): { hash: string; on: CallNode["chain"]; network: Network | null } | null {
   if (!stage.call) return null
   for (const node of walk(stage.call))
-    if (isCallTo(node, "Whitelist", "whitelist_call"))
-      return { hash: hex(argOf(node, "call_hash")), on: node.chain }
+    if (isCallTo(node, "Whitelist", "whitelist_call")) {
+      const on = node.chain
+      // Only a whitelist on a network's Asset Hub can be paired with a public referendum.
+      const network = NETWORK_IDS.find((n) => "id" in on && on.id === NETWORKS[n].assetHub)
+      return { hash: hex(argOf(node, "call_hash")), on, network: network ?? null }
+    }
   return null
 }
 
@@ -359,6 +427,7 @@ function describe(call: CallNode | null): string {
 }
 
 function makeProposal(parts: {
+  network: Network
   fellowship?: Stage
   open?: Stage
   whitelist?: Proposal["whitelist"]
@@ -367,7 +436,14 @@ function makeProposal(parts: {
 }): Proposal {
   const upgrades = upgradesIn(parts.call)
   const undecoded = parts.call
-    ? [...new Set([...walk(parts.call)].filter((n) => n.undecoded).map((n) => chainLabel(n.chain)))]
+    ? [
+        ...new Set(
+          [...walk(parts.call)]
+            // A call on a network that is still being read is not a failure to decode.
+            .filter((n) => n.undecoded && n.undecoded !== NOT_LOADED)
+            .map((n) => chainLabel(n.chain)),
+        ),
+      ]
     : []
   // In an upgrade, a call that cannot be decoded is counted as a chain being upgraded, so that
   // the title does not understate the proposal. The card says which chains are unverified.
@@ -378,11 +454,12 @@ function makeProposal(parts: {
       : (parts.fallbackTitle ?? describe(parts.call))
   return {
     id: [
-      parts.open && `open-${parts.open.index}`,
+      parts.open && `${parts.network}-open-${parts.open.index}`,
       parts.fellowship && `fellowship-${parts.fellowship.index}`,
     ]
       .filter(Boolean)
       .join("+"),
+    network: parts.network,
     title,
     kind: upgrades.length > 0 ? "upgrade" : parts.whitelist ? "whitelist" : "other",
     fellowship: parts.fellowship,
@@ -394,35 +471,62 @@ function makeProposal(parts: {
   }
 }
 
-/**
- * Read every open Fellowship referendum and the public referenda on the shown tracks, decode their
- * calls, and join them into proposals.
- */
-export async function loadSnapshot(): Promise<Snapshot> {
-  const [open, fellowship] = await Promise.all([loadOpenStages(), loadFellowshipStages()])
-  const api = assetHubApi()
+/** The network of the first chain outside Polkadot that the call reaches, if any. */
+function foreignNetwork(call: CallNode | null): Network | null {
+  if (!call) return null
+  for (const node of walk(call))
+    if ("id" in node.chain && CHAINS[node.chain.id].network !== "polkadot")
+      return CHAINS[node.chain.id].network
+  return null
+}
 
+/**
+ * Read every open Fellowship referendum and the public referenda on the shown tracks, decode
+ * their calls, and join them into proposals. Fails if the Fellowship or Polkadot cannot be read;
+ * a failure to read Kusama is reported in `unreachable`.
+ *
+ * Polkadot is always read. `networks` says which others to read with it: leaving Kusama out gives
+ * a faster first result, with Kusama listed in `pending`.
+ */
+export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<Snapshot> {
+  const pending = NETWORK_IDS.filter((n) => n !== "polkadot" && !networks.includes(n))
+  const included = NETWORK_IDS.filter((n) => !pending.includes(n))
+  const unreachable: Network[] = []
+  const [fellowship, ...openByNetwork] = await Promise.all([
+    loadFellowshipStages(pending),
+    ...included.map((network) =>
+      loadOpenStages(network).catch((e) => {
+        if (network === "polkadot") throw e
+        unreachable.push(network)
+        return [] as Stage[]
+      }),
+    ),
+  ])
+
+  // Fellowship referenda that whitelist a call, by network and hash.
   const requests = new Map<string, Stage>()
   const unpaired = new Set(fellowship)
   for (const stage of fellowship) {
     const request = whitelistRequest(stage)
-    if (request && "id" in request.on && request.on.id === "assetHub")
-      requests.set(request.hash, stage)
+    if (request?.network) requests.set(`${request.network}:${request.hash}`, stage)
   }
 
   const proposals: Proposal[] = []
-  for (const stage of open) {
+  for (const stage of openByNetwork.flat()) {
+    const { network } = stage
     const dispatch = whitelistDispatch(stage)
     if (!dispatch) {
-      proposals.push(makeProposal({ open: stage, call: stage.call }))
+      proposals.push(makeProposal({ network, open: stage, call: stage.call }))
       continue
     }
-    const partner = requests.get(dispatch.hash)
+    const partner = requests.get(`${network}:${dispatch.hash}`)
     if (partner) unpaired.delete(partner)
     const whitelisted =
-      (await api.query.Whitelist.WhitelistedCall.getValue(dispatch.hash)) !== undefined
+      (await assetHubApi(network).query.Whitelist.WhitelistedCall.getValue(dispatch.hash)) !==
+      undefined
     proposals.push(
       makeProposal({
+        network,
         open: stage,
         fellowship: partner,
         whitelist: { hash: dispatch.hash, whitelisted },
@@ -433,10 +537,19 @@ export async function loadSnapshot(): Promise<Snapshot> {
 
   for (const stage of unpaired) {
     const request = whitelistRequest(stage)
+    // The call may be whitelisted already while this referendum is still open, if an earlier one
+    // whitelisted the same hash.
+    const whitelisted =
+      request?.network && !unreachable.includes(request.network)
+        ? (await assetHubApi(request.network)
+            .query.Whitelist.WhitelistedCall.getValue(request.hash)
+            .catch(() => undefined)) !== undefined
+        : false
     proposals.push(
       makeProposal({
+        network: request?.network ?? foreignNetwork(stage.call) ?? "polkadot",
         fellowship: stage,
-        whitelist: request ? { hash: request.hash, whitelisted: false } : undefined,
+        whitelist: request ? { hash: request.hash, whitelisted } : undefined,
         call: stage.call,
         fallbackTitle: request ? `Whitelist a call on ${chainLabel(request.on)}` : undefined,
       }),
@@ -446,5 +559,5 @@ export async function loadSnapshot(): Promise<Snapshot> {
   const rank = { upgrade: 0, whitelist: 1, other: 2 }
   const newest = (p: Proposal) => p.open?.index ?? p.fellowship?.index ?? 0
   proposals.sort((a, b) => rank[a.kind] - rank[b.kind] || newest(b) - newest(a))
-  return { proposals, loadedAt: Date.now() }
+  return { proposals, unreachable, pending, loadedAt: Date.now() }
 }
