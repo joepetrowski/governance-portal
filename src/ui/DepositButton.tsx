@@ -1,0 +1,41 @@
+import type { Stage } from "../gov/load"
+import { type AccountStatus, decisionDepositTx } from "../gov/votes"
+import { useWallet } from "../wallet"
+import { formatDot } from "./format"
+import { choice, TxStatus, useSubmit } from "./tx"
+
+/** Places a missing decision deposit from the selected account. Any account may place it. */
+export function DepositButton(props: { stage: Stage; statuses: AccountStatus[]; onPlaced: () => void }) {
+  const { stage } = props
+  const wallet = useWallet()
+  const { state, busy, submit } = useSubmit(props.onPlaced)
+  const account = wallet.selected
+  const status = props.statuses.find((s) => s.address === account?.address)
+  if (!account || !status) return null
+
+  // The deposit is taken on the chain that hosts the referendum.
+  const [chain, free] =
+    stage.body === "fellowship"
+      ? ["Collectives", status.free.collectives]
+      : ["Asset Hub", status.free.assetHub]
+  if (free < stage.deposit.required)
+    return (
+      <span className="text-xs text-zinc-500">
+        The selected account has {formatDot(free)} free on {chain}.
+      </span>
+    )
+  return (
+    <span className="flex flex-col items-end">
+      <button
+        type="button"
+        disabled={busy}
+        className={choice(false)}
+        title="The deposit is returned after the referendum ends."
+        onClick={() => submit(decisionDepositTx(stage), account)}
+      >
+        Place deposit
+      </button>
+      <TxStatus state={state} />
+    </span>
+  )
+}

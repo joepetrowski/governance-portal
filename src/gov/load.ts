@@ -10,7 +10,7 @@ import {
   getClient,
   RELAY_BLOCK_MS,
 } from "../chains"
-import { formatList } from "../ui/format"
+import { formatDot, formatList } from "../ui/format"
 import { type Curve, delay, threshold } from "./curves"
 import { blake2Hex, type CallNode, chainLabel, decodeCall, isCallTo, walk } from "./decode"
 
@@ -28,6 +28,9 @@ export interface Stage {
   body: "fellowship" | "open"
   index: number
   track: string
+  trackId: number
+  /** Fellowship only: the lowest rank that may vote. */
+  minRank?: number
   submitter: string
   submitted: number
   status: StageStatus
@@ -41,6 +44,8 @@ export interface Stage {
   /** The clock this stage counts in. */
   now: number
   blockMs: number
+  /** The decision deposit the track requires, and who has placed it, if anyone. */
+  deposit: { required: bigint; placed: { who: string; amount: bigint } | null }
   call: CallNode | null
 }
 
@@ -79,6 +84,7 @@ interface TrackInfo {
   prepare_period: number
   decision_period: number
   confirm_period: number
+  decision_deposit: bigint
   min_approval: Curve
   min_support: Curve
 }
@@ -88,7 +94,7 @@ interface Ongoing {
   proposal: Bounded
   submitted: number
   submission_deposit: { who: string }
-  decision_deposit?: unknown
+  decision_deposit?: { who: string; amount: bigint }
   deciding?: { since: number; confirming?: number }
   in_queue: boolean
 }
@@ -102,10 +108,6 @@ const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
 function fellowshipMinRank(track: number): number {
   return track <= 9 ? track : (track % 10) + 2
 }
-
-const DOT = 10_000_000_000n
-const formatDot = (planck: bigint) =>
-  `${new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(Number(planck / DOT))} DOT`
 
 function stageStatus(info: Ongoing, track: TrackInfo, now: number, a: number | null, s: number) {
   if (info.deciding) {
@@ -143,6 +145,8 @@ function buildStage(
     body,
     index,
     track: trackName(track.name),
+    trackId: info.track,
+    minRank: body === "fellowship" ? fellowshipMinRank(info.track) : undefined,
     submitter: info.submission_deposit.who,
     submitted: info.submitted,
     status: stageStatus(info, track, clock.now, tally.approval, tally.support),
@@ -156,6 +160,7 @@ function buildStage(
     nays: tally.nays,
     now: clock.now,
     blockMs: clock.blockMs,
+    deposit: { required: track.decision_deposit, placed: info.decision_deposit ?? null },
     call,
   }
 }

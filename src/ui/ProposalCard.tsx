@@ -1,10 +1,27 @@
 import type { Proposal } from "../gov/load"
+import type { AccountStatus } from "../gov/votes"
 import { CallTree } from "./CallTree"
+import { DepositButton } from "./DepositButton"
 import { formatList, shortHex } from "./format"
 import { StageNote, StagePanel } from "./StagePanel"
+import { VotePanel } from "./VotePanel"
 
-function FellowshipStage({ proposal }: { proposal: Proposal }) {
-  if (proposal.fellowship) return <StagePanel stage={proposal.fellowship} />
+interface Props {
+  proposal: Proposal
+  statuses: AccountStatus[]
+  onVoted: () => void
+}
+
+function FellowshipStage({ proposal, statuses, onVoted }: Props) {
+  if (proposal.fellowship)
+    return (
+      <StagePanel
+        stage={proposal.fellowship}
+        depositAction={<DepositButton stage={proposal.fellowship} statuses={statuses} onPlaced={onVoted} />}
+      >
+        <VotePanel stage={proposal.fellowship} statuses={statuses} onVoted={onVoted} />
+      </StagePanel>
+    )
   if (!proposal.whitelist) return null
   return proposal.whitelist.whitelisted ? (
     <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
@@ -16,8 +33,16 @@ function FellowshipStage({ proposal }: { proposal: Proposal }) {
   )
 }
 
-function OpenStage({ proposal }: { proposal: Proposal }) {
-  if (proposal.open) return <StagePanel stage={proposal.open} />
+function OpenStage({ proposal, statuses, onVoted }: Props) {
+  if (proposal.open)
+    return (
+      <StagePanel
+        stage={proposal.open}
+        depositAction={<DepositButton stage={proposal.open} statuses={statuses} onPlaced={onVoted} />}
+      >
+        <VotePanel stage={proposal.open} statuses={statuses} onVoted={onVoted} />
+      </StagePanel>
+    )
   if (!proposal.whitelist) return null
   return (
     <StageNote title="Public referendum">
@@ -26,7 +51,8 @@ function OpenStage({ proposal }: { proposal: Proposal }) {
   )
 }
 
-export function ProposalCard({ proposal }: { proposal: Proposal }) {
+export function ProposalCard(props: Props) {
+  const { proposal } = props
   return (
     <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <h2 className="text-lg font-semibold">{proposal.title}</h2>
@@ -60,8 +86,8 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
       )}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <FellowshipStage proposal={proposal} />
-        <OpenStage proposal={proposal} />
+        <FellowshipStage {...props} />
+        <OpenStage {...props} />
       </div>
 
       {proposal.call && (

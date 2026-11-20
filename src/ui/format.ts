@@ -25,9 +25,35 @@ export const formatTime = (timestamp: number) =>
     hourCycle: "h23",
   })
 
+const AP_MONTHS = ["Jan.", "Feb.", "March", "April", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."]
+
+/** A date and time such as "Dec. 1, 14:05", with the year when it is not the current one. */
+export function formatDateTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  const year = date.getFullYear() === new Date().getFullYear() ? "" : `, ${date.getFullYear()}`
+  return `${AP_MONTHS[date.getMonth()]} ${date.getDate()}${year}, ${formatTime(timestamp)}`
+}
+
 /** A list in prose, with the serial comma: "A, B, and C". */
 export const formatList = (items: string[]) =>
   new Intl.ListFormat("en-US", { type: "conjunction" }).format(items)
+
+export const DOT_DECIMALS = 10
+const PLANCK_PER_DOT = 10n ** BigInt(DOT_DECIMALS)
+
+/** A compact amount such as "26.4K DOT". */
+export const formatDot = (planck: bigint) =>
+  `${new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(
+    Number(planck / PLANCK_PER_DOT) + Number(planck % PLANCK_PER_DOT) / Number(PLANCK_PER_DOT),
+  )} DOT`
+
+/** Parse a decimal DOT amount typed by a user. Returns null if it is not a valid amount. */
+export function parseDot(input: string): bigint | null {
+  const match = /^(\d+)(?:\.(\d{0,10}))?$/.exec(input.trim().replaceAll(",", ""))
+  if (!match) return null
+  const [, whole, fraction = ""] = match
+  return BigInt(whole) * PLANCK_PER_DOT + BigInt(fraction.padEnd(DOT_DECIMALS, "0"))
+}
 
 export const shortAddress = (address: string) => `${address.slice(0, 6)}…${address.slice(-6)}`
 

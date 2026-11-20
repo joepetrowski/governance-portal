@@ -1,5 +1,6 @@
+import type { ReactNode } from "react"
 import type { Stage } from "../gov/load"
-import { duration, percent, shortAddress } from "./format"
+import { duration, formatDot, percent, shortAddress } from "./format"
 
 function statusLine(stage: Stage): { label: string; detail: string } {
   const { status, now, blockMs } = stage
@@ -74,7 +75,33 @@ function TimeBar({ stage }: { stage: Stage }) {
   )
 }
 
-export function StagePanel({ stage }: { stage: Stage }) {
+/** Whether the decision deposit is placed. `action` is the control to place it, when missing. */
+function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
+  const { required, placed } = stage.deposit
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span className="text-zinc-600 dark:text-zinc-400">Decision deposit</span>
+      {placed ? (
+        <span>
+          {formatDot(placed.amount)} placed by{" "}
+          <span className="font-mono" title={placed.who}>
+            {shortAddress(placed.who)}
+          </span>
+        </span>
+      ) : (
+        <span className="flex flex-wrap items-center justify-end gap-2">
+          <span className="font-medium text-amber-700 dark:text-amber-400">
+            {formatDot(required)} not placed
+          </span>
+          {action}
+        </span>
+      )}
+    </div>
+  )
+}
+
+export function StagePanel(props: { stage: Stage; depositAction?: ReactNode; children?: ReactNode }) {
+  const { stage, children } = props
   const { label, detail } = statusLine(stage)
   const heading = stage.body === "fellowship" ? "Fellowship referendum" : "Public referendum"
   return (
@@ -102,12 +129,14 @@ export function StagePanel({ stage }: { stage: Stage }) {
         <Meter label="Support" {...stage.support} />
         <TimeBar stage={stage} />
       </div>
+      <DepositRow stage={stage} action={props.depositAction} />
       <p className="mt-3 text-xs text-zinc-500">
         Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
         <span className="font-mono" title={stage.submitter}>
           {shortAddress(stage.submitter)}
         </span>
       </p>
+      {children}
     </section>
   )
 }

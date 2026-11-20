@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { loadSnapshot, type Snapshot } from "./gov/load"
 
 const REFRESH_MS = 60_000
@@ -6,6 +6,10 @@ const REFRESH_MS = 60_000
 export function useSnapshot() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Bumping this restarts the polling loop, which loads immediately.
+  const [generation, setGeneration] = useState(0)
+  const refresh = useCallback(() => setGeneration((g) => g + 1), [])
 
   useEffect(() => {
     let canceled = false
@@ -26,7 +30,7 @@ export function useSnapshot() {
       canceled = true
       clearTimeout(timer)
     }
-  }, [])
+  }, [generation])
 
-  return { snapshot, error }
+  return { snapshot, error, refresh }
 }
