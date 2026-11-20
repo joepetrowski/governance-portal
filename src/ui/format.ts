@@ -70,12 +70,24 @@ export function formatBalance(planck: bigint, network: Network): string {
 }
 
 /**
+ * An amount of a network's token in full, without rounding, such as "1,234.5 DOT". For amounts
+ * that a user is about to commit, where the compact form could mislead.
+ */
+export function formatExact(planck: bigint, network: Network): string {
+  const { decimals, token } = NETWORKS[network]
+  const whole = (planck / unit(network)).toLocaleString("en-US")
+  const fraction = (planck % unit(network)).toString().padStart(decimals, "0").replace(/0+$/, "")
+  return `${whole}${fraction ? `.${fraction}` : ""} ${token}`
+}
+
+/**
  * Parse a decimal amount of a network's token typed by a user. Returns null if it is not a valid
- * amount.
+ * amount. Only digits and a period are accepted: A comma could be meant as a decimal mark or as a
+ * thousands separator, and guessing wrong would change the amount tenfold or more.
  */
 export function parseBalance(input: string, network: Network): bigint | null {
   const { decimals } = NETWORKS[network]
-  const match = /^(\d+)(?:\.(\d*))?$/.exec(input.trim().replaceAll(",", ""))
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(input.trim())
   if (!match) return null
   const [, whole, fraction = ""] = match
   if (fraction.length > decimals) return null

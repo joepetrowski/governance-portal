@@ -108,6 +108,7 @@ export function ProposalCard(props: Props) {
               className="rounded-full bg-pink-100 px-2.5 py-0.5 text-xs font-medium text-pink-900 dark:bg-pink-950 dark:text-pink-200"
             >
               {short(u.chain)}
+              {u.unchecked && " (no version checks)"}
             </li>
           ))}
           {proposal.undecoded.map((chain) => (
@@ -119,6 +120,18 @@ export function ProposalCard(props: Props) {
             </li>
           ))}
         </ul>
+      )}
+      {proposal.otherEffects > 0 && (
+        <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+          This proposal does more than upgrade runtimes. See "What it does" for the{" "}
+          {proposal.otherEffects === 1 ? "other call" : `${proposal.otherEffects} other calls`}.
+        </p>
+      )}
+      {proposal.upgrades.some((u) => u.unchecked) && (
+        <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+          At least one runtime is authorized without version checks, so the chain would not verify
+          that it is a newer version of the same runtime.
+        </p>
       )}
       {proposal.undecoded.length > 0 && (
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">

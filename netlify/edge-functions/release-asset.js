@@ -8,25 +8,41 @@
 const TAG = /^v\d+\.\d+\.\d+$/
 const FILE = /^[a-z0-9-]+_runtime-v\d+\.compact\.compressed\.wasm$/
 
-export default async (_request, context) => {
+const UPSTREAM_TIMEOUT_MS = 30_000
+
+export default async (request, context) => {
+  if (request.method !== "GET" && request.method !== "HEAD")
+    return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } })
   const { tag, file } = context.params
   if (!TAG.test(tag) || !FILE.test(file))
     return new Response("Not a runtime release asset", { status: 400 })
 
-  const upstream = await fetch(
-    `https://github.com/polkadot-fellows/runtimes/releases/download/${tag}/${file}`,
-  )
+  let upstream
+  try {
+    upstream = await fetch(
+      `https://github.com/polkadot-fellows/runtimes/releases/download/${tag}/${file}`,
+      { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) },
+    )
+  } catch {
+    return new Response("GitHub did not answer", { status: 502 })
+  }
   // Always 502, also for a missing asset: On a 404, Netlify would retry the path as a page.
   if (!upstream.ok) return new Response(`GitHub answered ${upstream.status}`, { status: 502 })
 
-  return new Response(upstream.body, {
-    headers: {
-      "content-type": "application/octet-stream",
-      "cache-control": "public, max-age=3600",
-      "x-content-type-options": "nosniff",
-    },
-  })
+  const headers = {
+    "content-type": "application/octet-stream",
+    // A release asset does not change, and the browser checks what it receives, so the CDN may
+    // keep it for a day. That also keeps repeated requests from reaching GitHub.
+    "cache-control": "public, max-age=3600, s-maxage=86400",
+    "x-content-type-options": "nosniff",
+  }
+  const length = upstream.headers.get("content-length")
+  if (length) headers["content-length"] = length
+  return new Response(upstream.body, { headers })
 }
 
-/** Route of this edge function, as Netlify reads it. */
-export const config = { path: "/release-asset/:tag/:file" }
+/**
+ * Route of this edge function, as Netlify reads it. `cache: "manual"` lets the CDN cache the
+ * responses by their `cache-control` header, which it does not do for edge functions otherwise.
+ */
+export const config = { path: "/release-asset/:tag/:file", cache: "manual" }

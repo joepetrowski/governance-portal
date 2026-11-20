@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { CHAINS, type ChainId, chainsOf, type Network, NETWORK_IDS, NETWORKS } from "../chains"
 import type { Proposal } from "../gov/load"
 import {
@@ -148,12 +148,13 @@ function AllFellowship(props: {
   )
     return null
   const names = props.builts.map((b) => NETWORKS[b.network].name)
+  const versions = props.builts.map((b) => `${NETWORKS[b.network].name} to ${b.tag}`)
   return (
     <SubmitStep
       title={`Fellowship referenda for ${formatList(names)}`}
       detail={
-        "On Collectives, in one transaction. It does the same as the Fellowship step of each " +
-        "network above, so use one or the other."
+        `On Collectives, in one transaction, for the upgrades of ${formatList(versions)}. It ` +
+        "does the same as the Fellowship step of each network above, so use one or the other."
       }
       blocked={blocks.find((b) => b !== null) ?? null}
       makeTx={() => fellowshipSubmitAllTx(props.builts)}
@@ -303,6 +304,16 @@ function NetworkUpgrade(props: {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // A build that finishes after the release was changed belongs to a section that is gone, and
+  // must not be reported as built.
+  const mounted = useRef(true)
+  useEffect(
+    () => () => {
+      mounted.current = false
+    },
+    [],
+  )
+
   const build = async () => {
     setBuilt(null)
     setError(null)
@@ -316,6 +327,7 @@ function NetworkUpgrade(props: {
         fetchAssetViaProxy,
         (done, total) => setBusy(`Downloading and hashing runtimes: ${done} of ${total}…`),
       )
+      if (!mounted.current) return
       setBuilt(result)
     } catch (e) {
       setError(message(e))

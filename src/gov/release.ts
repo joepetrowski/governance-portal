@@ -4,8 +4,8 @@
 //
 // The calls are built by the `opengov` library (the same code as the `opengov` command line tool,
 // compiled to WebAssembly). That library encodes against metadata compiled into it, so every call
-// it returns is decoded here against the live runtimes and checked before anything is offered for
-// signing.
+// it returns (the proposal, the Fellowship referendum, and the public referendum with its preimage)
+// is decoded here against the live runtimes and checked before anything is offered for signing.
 
 import type * as Opengov from "opengov"
 import { fromHex, toHex } from "polkadot-api/utils"
@@ -19,7 +19,8 @@ import {
   type Network,
   NETWORKS,
 } from "../chains"
-import { blake2Hex, type CallNode, decodeCall, isCallTo, walk } from "./decode"
+import { loadReleaseHashes } from "./versions"
+import { blake2Hex, type CallNode, decodeCall, effects, isCallTo, walk } from "./decode"
 
 /**
  * The `opengov` WebAssembly module, once initialized. Passed in so that the browser and Node can
@@ -177,10 +178,8 @@ export interface BuiltUpgrade {
   submissionDeposit: bigint
 }
 
-const hexArg = (node: CallNode, key: string) => {
-  const value = (node.args as Record<string, unknown>)[key]
-  return value instanceof Uint8Array ? toHex(value) : String(value)
-}
+const hexOf = (value: unknown) => (value instanceof Uint8Array ? toHex(value) : String(value))
+const hexArg = (node: CallNode, key: string) => hexOf((node.args as Record<string, unknown>)[key])
 
 /**
  * Throws unless the Fellowship referendum in `calls`, decoded on the live Collectives runtime,
@@ -207,19 +206,87 @@ async function checkFellowshipCalls(
     const noted = (note.args as { bytes?: unknown }).bytes
     if (isCallTo(note, "Preimage", "note_preimage") && noted instanceof Uint8Array) voted = noted
   }
+  // It must do exactly one thing: whitelist this hash on the network's Asset Hub.
+  const done = voted === null ? [] : effects(await decodeCall({ id: "collectives" }, voted))
+  const [only] = done
   const whitelists =
-    voted !== null &&
-    [...walk(await decodeCall({ id: "collectives" }, voted))].some(
-      (n) =>
-        isCallTo(n, "Whitelist", "whitelist_call") &&
-        "id" in n.chain &&
-        n.chain.id === NETWORKS[network].assetHub &&
-        hexArg(n, "call_hash") === hash,
-    )
-  if (!isCallTo(submit, "FellowshipReferenda", "submit") || !whitelists)
+    done.length === 1 &&
+    isCallTo(only, "Whitelist", "whitelist_call") &&
+    "id" in only.chain &&
+    only.chain.id === NETWORKS[network].assetHub &&
+    hexArg(only, "call_hash") === hash
+  // A proposal given by hash must be the preimage that is noted with it.
+  const lookup = bounded?.type === "Lookup" ? (bounded.value as { hash?: unknown }).hash : null
+  const hashMatches = lookup === null || (voted !== null && hexOf(lookup) === blake2Hex(voted))
+  // And it must be submitted on the track that may whitelist.
+  const origin = (submit.args as { proposal_origin?: { type?: string; value?: { type?: string } } })
+    .proposal_origin
+  const fellows = origin?.type === "FellowshipOrigins" && origin.value?.type === "Fellows"
+  if (!isCallTo(submit, "FellowshipReferenda", "submit") || !whitelists || !hashMatches || !fellows)
     throw new Error(
       "The generated Fellowship referendum does not decode as expected on Collectives.",
     )
+}
+
+/**
+ * Throws unless the public referendum in `calls`, decoded on the network's live Asset Hub,
+ * submits on the Whitelisted Caller track a preimage that dispatches exactly `proposal` through
+ * the whitelist, and the preimage to be noted is that same preimage.
+ */
+async function checkPublicCalls(
+  calls: Opengov.ReferendumCalls,
+  proposal: Opengov.NetworkCall,
+  network: Network,
+): Promise<void> {
+  const chain = { id: NETWORKS[network].assetHub }
+  const wrong = new Error(
+    "The generated public referendum does not decode as expected on Asset Hub. " +
+      "The opengov library is probably out of date with the runtime.",
+  )
+  if (blake2Hex(fromHex(proposal.encoded)) !== proposal.hash) throw wrong
+
+  // The preimage: `Whitelist.dispatch_whitelisted_call_with_preimage(proposal)`.
+  const preimage = fromHex(calls.public_preimage_bytes)
+  const dispatch = await decodeCall(chain, preimage)
+  if (
+    !isCallTo(dispatch, "Whitelist", "dispatch_whitelisted_call_with_preimage") ||
+    // The call is the only argument, so its encoding is everything after the two index bytes.
+    toHex(preimage.subarray(2)) !== proposal.encoded ||
+    blake2Hex(preimage) !== calls.public_preimage_hash ||
+    preimage.length !== calls.public_preimage_len
+  )
+    throw wrong
+
+  // The call that notes it.
+  const note = await decodeCall(chain, fromHex(calls.public_preimage.encoded))
+  const noted = (note.args as { bytes?: unknown } | undefined)?.bytes
+  if (
+    !isCallTo(note, "Preimage", "note_preimage") ||
+    !(noted instanceof Uint8Array) ||
+    toHex(noted) !== calls.public_preimage_bytes
+  )
+    throw wrong
+
+  // The submission: that preimage, on the Whitelisted Caller track, enacting after the delay.
+  const submit = await decodeCall(chain, fromHex(calls.public_referendum.encoded))
+  const args = submit.args as
+    | {
+        proposal_origin?: { type?: string; value?: { type?: string } }
+        proposal?: { type?: string; value?: { hash?: unknown; len?: unknown } }
+        enactment_moment?: { type?: string; value?: unknown }
+      }
+    | undefined
+  if (
+    !isCallTo(submit, "Referenda", "submit") ||
+    args?.proposal_origin?.type !== "Origins" ||
+    args.proposal_origin.value?.type !== "WhitelistedCaller" ||
+    args.proposal?.type !== "Lookup" ||
+    hexOf(args.proposal.value?.hash) !== calls.public_preimage_hash ||
+    args.proposal.value?.len !== calls.public_preimage_len ||
+    args.enactment_moment?.type !== "After" ||
+    args.enactment_moment.value !== ENACT_AFTER
+  )
+    throw wrong
 }
 
 /**
@@ -273,9 +340,14 @@ export async function buildUpgrade(
       // The proxy is not trusted: The bytes must match what GitHub says the asset is.
       if (bytes.length !== asset.size)
         throw new Error(`${file} is ${bytes.length} bytes, but the release lists ${asset.size}.`)
-      if (asset.digest?.startsWith("sha256:") && (await sha256Hex(bytes)) !== asset.digest.slice(7))
-        throw new Error(`${file} does not match the SHA-256 digest of the release asset.`)
       const codeHash = lib.check_and_hash_runtime(bytes, false)
+      if (asset.digest?.startsWith("sha256:")) {
+        if ((await sha256Hex(bytes)) !== asset.digest.slice(7))
+          throw new Error(`${file} does not match the SHA-256 digest of the release asset.`)
+      } else if ((await loadReleaseHashes())[codeHash] !== release.tag) {
+        // Without a digest from GitHub, the hash listed in the release notes must vouch for it.
+        throw new Error(`${file} could not be verified against the release.`)
+      }
       onProgress(++done, plans.length)
       return { chain, codeHash }
     }),
@@ -297,7 +369,7 @@ export async function buildUpgrade(
   // Check 1: on the live runtimes, the proposal authorizes exactly these upgrades and nothing else.
   const tree = await decodeCall({ id: assetHub }, fromHex(proposal.encoded))
   const nodes = [...walk(tree)]
-  const leaves = nodes.filter((n) => n.children.length === 0)
+  const leaves = effects(tree)
   const authorized = leaves
     .filter((n) => !n.undecoded && isCallTo(n, "System", "authorize_upgrade") && "id" in n.chain)
     .map((n) => `${(n.chain as { id: ChainId }).id}:${hexArg(n, "code_hash")}`)
@@ -315,6 +387,9 @@ export async function buildUpgrade(
 
   // Check 2: the Fellowship referendum whitelists this proposal on the network's Asset Hub.
   await checkFellowshipCalls(calls, proposal.hash, network)
+
+  // Check 3: the public referendum dispatches this proposal, on the Whitelisted Caller track.
+  await checkPublicCalls(calls, proposal, network)
 
   const submissionDeposit = await assetHubApi(network).constants.Referenda.SubmissionDeposit()
   return { network, tag: release.tag, runtimes, proposal, tree, calls, submissionDeposit }

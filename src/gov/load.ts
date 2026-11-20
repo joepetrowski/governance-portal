@@ -21,6 +21,7 @@ import {
   type CallNode,
   chainLabel,
   decodeCall,
+  effects,
   isCallTo,
   NOT_LOADED,
   walk,
@@ -89,6 +90,11 @@ export interface Upgrade {
   chain: string
   /** Hash of the new runtime code, as hex. */
   codeHash: string
+  /**
+   * Whether the chain will apply the code without checking that it is a newer version of the same
+   * runtime (`authorize_upgrade_without_checks`).
+   */
+  unchecked: boolean
 }
 
 /**
@@ -119,6 +125,11 @@ export interface Proposal {
   }
   /** Runtime upgrades the proposal authorizes. Empty if it is not an upgrade. */
   upgrades: Upgrade[]
+  /**
+   * In an upgrade, how many other things the proposal does besides authorizing runtimes. An
+   * upgrade is only a plain one when this is zero.
+   */
+  otherEffects: number
   /** Chains with a call that could not be decoded, so its contents are unknown. */
   undecoded: string[]
   /** The call that will actually execute, for display. */
@@ -410,28 +421,32 @@ function whitelistRequest(
   return null
 }
 
+const isUpgrade = (n: CallNode) =>
+  isCallTo(n, "System", "authorize_upgrade") ||
+  isCallTo(n, "System", "authorize_upgrade_without_checks")
+
 function upgradesIn(call: CallNode | null): Upgrade[] {
   if (!call) return []
-  return [...walk(call)]
-    .filter(
-      (n) =>
-        isCallTo(n, "System", "authorize_upgrade") ||
-        isCallTo(n, "System", "authorize_upgrade_without_checks"),
-    )
-    .map((n) => ({ chain: chainLabel(n.chain), codeHash: hex(argOf(n, "code_hash")) }))
+  return [...walk(call)].filter(isUpgrade).map((n) => ({
+    chain: chainLabel(n.chain),
+    codeHash: hex(argOf(n, "code_hash")),
+    unchecked: n.name === "authorize_upgrade_without_checks",
+  }))
 }
+
+/** How a node is named in a title. Backticks mark code, which the interface shows preformatted. */
+const nameOf = (n: CallNode) => (n.xcm ? `XCM \`${n.name}\`` : `\`${n.pallet}.${n.name}\``)
 
 function describe(call: CallNode | null): string {
   if (!call) return "Proposal not available"
   if (call.undecoded) return "Undecoded call"
-  const all = [...walk(call)]
-  const leaves = all.filter((n) => n.children.length === 0 && !n.undecoded)
+  const leaves = effects(call).filter((n) => !n.undecoded)
   if (leaves.length === 0) {
-    const targets = [...new Set(all.filter((n) => n.undecoded).map((n) => chainLabel(n.chain)))]
+    const undecoded = [...walk(call)].filter((n) => n.undecoded)
+    const targets = [...new Set(undecoded.map((n) => chainLabel(n.chain)))]
     return `Call on ${formatList(targets)}`
   }
-  // Backticks mark code, which the interface shows preformatted.
-  const names = [...new Set(leaves.map((n) => `\`${n.pallet}.${n.name}\``))]
+  const names = [...new Set(leaves.map(nameOf))]
   const where = [...new Set(leaves.map((n) => chainLabel(n.chain)))]
   const what = names.length > 2 ? [...names.slice(0, 2), `${names.length - 2} more`] : names
   return `${formatList(what)} on ${formatList(where)}`
@@ -459,9 +474,17 @@ function makeProposal(parts: {
   // In an upgrade, a call that cannot be decoded is counted as a chain being upgraded, so that
   // the title does not understate the proposal. The card says which chains are unverified.
   const chains = [...new Set([...upgrades.map((u) => u.chain), ...undecoded])]
+  // Whatever else the proposal does is counted and named in the title, so that an upgrade with
+  // something added to it does not pass for a plain one. Undecoded calls are counted as chains.
+  const otherEffects =
+    upgrades.length > 0 && parts.call
+      ? effects(parts.call).filter((n) => !isUpgrade(n) && !n.undecoded).length
+      : 0
+  const others = otherEffects === 1 ? "1 other call" : `${otherEffects} other calls`
   const title =
     upgrades.length > 0
-      ? `Runtime upgrade of ${chains.length === 1 ? chains[0] : `${chains.length} chains`}`
+      ? `Runtime upgrade of ${chains.length === 1 ? chains[0] : `${chains.length} chains`}` +
+        (otherEffects > 0 ? ` and ${others}` : "")
       : (parts.fallbackTitle ?? describe(parts.call))
   return {
     id: [
@@ -477,10 +500,20 @@ function makeProposal(parts: {
     open: parts.open,
     whitelist: parts.whitelist,
     upgrades,
+    otherEffects,
     undecoded,
     call: parts.call,
   }
 }
+
+/** How long a network other than Polkadot may take to answer before it counts as unreachable. */
+const NETWORK_DEADLINE_MS = 30_000
+
+const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timed out")), ms)),
+  ])
 
 /** The network of the first chain outside Polkadot that the call reaches, if any. */
 function foreignNetwork(call: CallNode | null): Network | null {
@@ -506,7 +539,12 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
   const [fellowship, ...openByNetwork] = await Promise.all([
     loadFellowshipStages(pending),
     ...included.map((network) =>
-      loadOpenStages(network).catch((e) => {
+      // A network other than Polkadot that does not answer in time is reported as unreachable,
+      // so that it cannot hold up the rest.
+      (network === "polkadot"
+        ? loadOpenStages(network)
+        : withDeadline(loadOpenStages(network), NETWORK_DEADLINE_MS)
+      ).catch((e) => {
         if (network === "polkadot") throw e
         unreachable.push(network)
         return [] as Stage[]
@@ -533,8 +571,13 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
     const partner = requests.get(`${network}:${dispatch.hash}`)
     if (partner) unpaired.delete(partner)
     const whitelisted =
-      (await assetHubApi(network).query.Whitelist.WhitelistedCall.getValue(dispatch.hash)) !==
-      undefined
+      (await withDeadline(
+        assetHubApi(network).query.Whitelist.WhitelistedCall.getValue(dispatch.hash),
+        NETWORK_DEADLINE_MS,
+      ).catch((e) => {
+        if (network === "polkadot") throw e
+        return undefined
+      })) !== undefined
     proposals.push(
       makeProposal({
         network,

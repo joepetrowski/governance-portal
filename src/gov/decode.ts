@@ -1,6 +1,10 @@
 // Semantic call decoding. A call is decoded into a tree: calls nested on the same chain (batches,
 // whitelist dispatch, scheduler, ...) and calls that XCM programs will `Transact` on other chains
 // are all resolved into the call that actually executes, on the chain where it executes.
+//
+// The tree is what voters and signers read, so it must not leave anything out. Every XCM
+// instruction becomes a node, not only `Transact`, and anything that cannot be followed is
+// flagged as not decoded instead of being dropped.
 
 import { Blake2256 } from "@polkadot-api/substrate-bindings"
 import { toHex } from "polkadot-api/utils"
@@ -9,6 +13,7 @@ import {
   type ChainId,
   CHAINS,
   decodeCallData,
+  isRuntimeCall,
   NETWORK_IDS,
   NETWORKS,
   type Network,
@@ -22,10 +27,14 @@ export type ChainRef = { id: ChainId } | { external: string }
 export interface CallNode {
   /** The chain on which this call executes. */
   chain: ChainRef
-  /** Pallet name, as in the runtime's metadata. */
+  /** Pallet name, as in the runtime's metadata. "XCM" for an XCM instruction. */
   pallet: string
-  /** Call name, as in the runtime's metadata. */
+  /** Call name, as in the runtime's metadata, or the name of the XCM instruction. */
   name: string
+  /** Set when this node is an XCM instruction other than `Transact`, and not a call. */
+  xcm?: true
+  /** Names of the arguments whose content is shown as the children. */
+  shownAsChildren?: string[]
   /** Decoded arguments, with nested calls and XCM programs left in place. */
   args: unknown
   /** Calls this call will dispatch, locally or on other chains. */
@@ -74,7 +83,7 @@ export async function decodeCall(
   if (skip.includes(CHAINS[chain.id].network)) return failed(chain, bytes, NOT_LOADED)
   try {
     const decoded = await decodeCallData(chain.id, bytes)
-    const node = await fromDecoded(chain, decoded, skip)
+    const node = await fromDecoded({ id: chain.id }, decoded, skip)
     node.bytes = bytes
     return node
   } catch (e) {
@@ -92,8 +101,11 @@ const failed = (chain: ChainRef, bytes: Uint8Array, reason: string): CallNode =>
   undecoded: reason,
 })
 
+const isXcmProgram = (v: unknown): v is { type: string; value: unknown[] } =>
+  isTagged(v) && /^V\d+$/.test(v.type) && Array.isArray(v.value)
+
 async function fromDecoded(
-  chain: ChainRef,
+  chain: ChainRef & { id: ChainId },
   decoded: { type: string; value: Tagged },
   skip: Network[],
 ): Promise<CallNode> {
@@ -107,52 +119,126 @@ async function fromDecoded(
   }
   if (!isRecord(args)) return node
 
+  // A value has the shape of a call if it is an enum inside an enum, which is also the shape of
+  // an origin and of other things. Under the conventional argument names it is taken as a call;
+  // under any other name the runtime is asked whether it is one.
+  const conventional = (key: string) => key === "call" || key === "calls" || key.endsWith("_call")
+  const nestedCall = async (key: string, value: unknown): Promise<CallNode[] | null> => {
+    if (!isCall(value)) return null
+    const sure =
+      conventional(key) ||
+      (await isRuntimeCall(chain.id, value.type, value.value.type, value.value.value))
+    return sure ? [await fromDecoded(chain, value, skip)] : null
+  }
+
   // The children are decoded at the same time, since each may wait on a different chain. Their
   // order is kept.
-  const children: Promise<CallNode[]>[] = []
-  const one = (inner: { type: string; value: Tagged }) =>
-    fromDecoded(chain, inner, skip).then((child) => [child])
-
-  // Calls nested on the same chain: By convention these arguments are named `call` or `calls`.
-  for (const [key, value] of Object.entries(args)) {
-    if (key === "calls" && Array.isArray(value)) children.push(...value.filter(isCall).map(one))
-    else if (isCall(value) && (key === "call" || key.endsWith("_call"))) children.push(one(value))
-  }
-
-  // XCM programs: `send` executes them at `dest`, `execute` locally.
-  const message = args.message
-  if (isTagged(message) && Array.isArray(message.value)) {
-    const target = "dest" in args ? resolveLocation(chain, versioned(args.dest)) : chain
-    children.push(walkXcm(target, message.value, skip))
-  }
-  node.children = (await Promise.all(children)).flat()
+  const perArg = Object.entries(args).map(async ([key, value]): Promise<CallNode[] | null> => {
+    // XCM programs: `send` and the transfer calls execute them at `dest`, `execute` locally.
+    if (isXcmProgram(value)) {
+      const target = "dest" in args ? resolveLocation(chain, versioned(args.dest)) : chain
+      return walkXcm(target, value.value, skip)
+    }
+    if (Array.isArray(value) && value.length > 0 && value.every(isCall)) {
+      const all = await Promise.all(value.map((inner) => nestedCall(key, inner)))
+      return all.every((found) => found !== null) ? all.flat() : null
+    }
+    return nestedCall(key, value)
+  })
+  const found = await Promise.all(perArg)
+  node.children = found.flatMap((children) => children ?? [])
+  node.shownAsChildren = Object.keys(args).filter((_, i) => found[i] !== null)
   return node
 }
 
-/** Find every call an XCM program dispatches, following onward transfers to further chains. */
+/**
+ * XCM instructions that neither move assets nor dispatch anything: They pay for execution, check
+ * expectations, or tidy up. They are listed in the tree but do not count as what a proposal does.
+ */
+const XCM_PLUMBING = new Set([
+  "UnpaidExecution",
+  "BuyExecution",
+  "PayFees",
+  "RefundSurplus",
+  "SetFeesMode",
+  "ClearOrigin",
+  "ClearError",
+  "ClearTransactStatus",
+  "ExpectOrigin",
+  "ExpectError",
+  "ExpectPallet",
+  "ExpectAsset",
+  "ExpectTransactStatus",
+])
+
+/** Whether the node is an XCM instruction with no effect of its own. */
+export const isPlumbing = (node: CallNode) =>
+  node.xcm === true && node.children.length === 0 && XCM_PLUMBING.has(node.name)
+
+const mentionsTransact = (value: unknown): boolean =>
+  Array.isArray(value)
+    ? value.some(mentionsTransact)
+    : isRecord(value)
+      ? value.type === "Transact" || Object.values(value).some(mentionsTransact)
+      : false
+
+/**
+ * Turn an XCM program into nodes: the call of each `Transact`, decoded on the chain where the
+ * program runs, and one node for every other instruction. Programs nested in an instruction are
+ * followed, to another chain where the instruction sends them there.
+ */
 async function walkXcm(
   chain: ChainRef,
   instructions: unknown[],
   skip: Network[],
 ): Promise<CallNode[]> {
-  const found = instructions.map(async (instruction): Promise<CallNode[]> => {
-    if (!isTagged(instruction) || !isRecord(instruction.value)) return []
+  const nodes = instructions.map(async (instruction): Promise<CallNode> => {
+    if (!isTagged(instruction))
+      return failed(chain, new Uint8Array(), "An XCM instruction of an unknown form")
     const value = instruction.value
     if (instruction.type === "Transact") {
-      const bytes = callBytes(value.call)
-      if (!bytes) return []
+      const bytes = isRecord(value) ? callBytes(value.call) : undefined
+      if (!bytes) return failed(chain, new Uint8Array(), "A `Transact` without readable call data")
       const node = await decodeCall(chain, bytes, skip)
-      node.xcmOriginKind = isTagged(value.origin_kind) ? value.origin_kind.type : undefined
-      return [node]
+      if (isRecord(value) && isTagged(value.origin_kind))
+        node.xcmOriginKind = value.origin_kind.type
+      return node
     }
-    // Instructions that forward a nested program to another location.
-    const nested = value.remote_xcm ?? value.xcm
-    const destination = value.destination ?? value.dest
-    if (Array.isArray(nested) && destination !== undefined)
-      return walkXcm(resolveLocation(chain, destination), nested, skip)
-    return []
+
+    const node: CallNode = {
+      chain,
+      pallet: "XCM",
+      name: instruction.type,
+      args: value,
+      children: [],
+      xcm: true,
+    }
+    // Nested programs: the instruction is one (`SetAppendix`, `SetErrorHandler`), or carries one
+    // to run at a destination or after a transfer.
+    if (Array.isArray(value) && value.every(isTagged)) {
+      node.children = await walkXcm(chain, value, skip)
+      node.args = undefined
+    } else if (isRecord(value)) {
+      const shown: string[] = []
+      const destination = value.destination ?? value.dest ?? value.reserve
+      const target = destination === undefined ? chain : resolveLocation(chain, destination)
+      for (const key of ["xcm", "remote_xcm"]) {
+        const nested = value[key]
+        if (!Array.isArray(nested)) continue
+        node.children.push(...(await walkXcm(target, nested, skip)))
+        shown.push(key)
+      }
+      node.shownAsChildren = shown
+      // A call anywhere else in the instruction is in a place this code does not know.
+      const elsewhere = Object.entries(value).filter(([key]) => !shown.includes(key))
+      if (elsewhere.some(([, v]) => mentionsTransact(v)))
+        node.children.push(
+          failed(chain, new Uint8Array(), "This instruction carries a call that was not followed"),
+        )
+    }
+    return node
   })
-  return (await Promise.all(found)).flat()
+  return Promise.all(nodes)
 }
 
 function callBytes(call: unknown): Uint8Array | undefined {
@@ -209,3 +295,25 @@ export function* walk(node: CallNode): Generator<CallNode> {
 /** Whether the node is a decoded call to `pallet.name`. */
 export const isCallTo = (node: CallNode, pallet: string, name: string) =>
   !node.undecoded && node.pallet === pallet && node.name === name
+
+/**
+ * Whether an XCM instruction with a nested program only carries that program: It moves no assets
+ * and has no other effect of its own.
+ */
+function onlyCarries(node: CallNode): boolean {
+  if (["SetAppendix", "SetErrorHandler", "ExecuteWithOrigin"].includes(node.name)) return true
+  if (node.name !== "InitiateTransfer" || !isRecord(node.args)) return false
+  const { assets, remote_fees } = node.args
+  return Array.isArray(assets) && assets.length === 0 && remote_fees === undefined
+}
+
+/**
+ * What a call does in the end: every node of its tree that leads to nothing further, and every
+ * XCM instruction that does something besides carrying a nested program. XCM instructions with no
+ * effect of their own are left out. A call that could not be decoded counts, since what it does is
+ * unknown.
+ */
+export const effects = (node: CallNode): CallNode[] =>
+  [...walk(node)].filter((n) =>
+    n.children.length === 0 ? !isPlumbing(n) : n.xcm === true && !onlyCarries(n),
+  )

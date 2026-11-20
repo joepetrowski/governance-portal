@@ -289,21 +289,43 @@ export const assetHubApi = (network: Network = "polkadot") =>
 /** Typed API of Collectives, which hosts the Fellowship and its referenda. */
 export const collectivesApi = () => getClient("collectives").getTypedApi(collectives)
 
+/** Give up on a chain that does not answer, so that it cannot stall everything else. */
+const withTimeout = <T>(promise: Promise<T>, chainName: string): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Timed out connecting to ${chainName}`)),
+        DECODE_TIMEOUT_MS,
+      ),
+    ),
+  ])
+
 /** Decode SCALE-encoded call data against a chain's live runtime. */
 export async function decodeCallData(
   chain: ChainId,
   bytes: Uint8Array,
 ): Promise<{ type: string; value: { type: string; value: unknown } }> {
   const api = getClient(chain).getTypedApi(DESCRIPTORS[chain])
-  // An unreachable endpoint must not stall everything else, so give up after a while.
-  const tx = await Promise.race([
-    api.txFromCallData(bytes),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`Timed out connecting to ${CHAINS[chain].name}`)),
-        DECODE_TIMEOUT_MS,
-      ),
-    ),
-  ])
+  const tx = await withTimeout(api.txFromCallData(bytes), CHAINS[chain].name)
   return tx.decodedCall as { type: string; value: { type: string; value: unknown } }
+}
+
+/**
+ * Whether `pallet.name` is a call of the chain's live runtime that accepts these arguments. Used
+ * to tell a nested call apart from other values of the same shape, such as origins.
+ */
+export async function isRuntimeCall(
+  chain: ChainId,
+  pallet: string,
+  name: string,
+  args: unknown,
+): Promise<boolean> {
+  try {
+    const tx = getClient(chain).getUnsafeApi().tx[pallet][name](args)
+    await withTimeout(tx.getEncodedData(), CHAINS[chain].name)
+    return true
+  } catch {
+    return false
+  }
 }

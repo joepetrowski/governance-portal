@@ -1,9 +1,6 @@
 import { toHex } from "polkadot-api/utils"
-import { type CallNode, chainLabel, isCallTo } from "../gov/decode"
+import { type CallNode, chainLabel, isCallTo, isPlumbing } from "../gov/decode"
 import { shortHex } from "./format"
-
-// Arguments that the tree already shows as child calls.
-const SHOWN_AS_CHILDREN = new Set(["call", "calls", "message", "dest"])
 
 function formatValue(value: unknown): string {
   if (value instanceof Uint8Array) return shortHex(toHex(value))
@@ -24,25 +21,34 @@ function formatValue(value: unknown): string {
     .join(", ")} }`
 }
 
-// A `send` is plumbing: What matters is the call it delivers and where.
+// A `send` whose program does nothing but dispatch calls is transport: What matters is the calls
+// it delivers and where. It is shown in full as soon as the program holds any other instruction
+// with an effect, so that nothing a proposal does is left out of the tree.
 const isTransport = (node: CallNode) =>
   node.children.length > 0 &&
-  (isCallTo(node, "PolkadotXcm", "send") || isCallTo(node, "XcmPallet", "send"))
+  (isCallTo(node, "PolkadotXcm", "send") || isCallTo(node, "XcmPallet", "send")) &&
+  node.children.every((child) => !child.xcm || isPlumbing(child))
 
 function Node({ node }: { node: CallNode }) {
   if (isTransport(node))
     return (
       <>
-        {node.children.map((child, i) => (
-          <Node key={i} node={child} />
-        ))}
+        {node.children
+          .filter((child) => !child.xcm)
+          .map((child, i) => (
+            <Node key={i} node={child} />
+          ))}
       </>
     )
 
+  // An argument is left out only where its content is shown as the children.
+  const shown = new Set(node.shownAsChildren ?? [])
   const args =
     typeof node.args === "object" && node.args !== null && !Array.isArray(node.args)
-      ? Object.entries(node.args).filter(([key]) => !SHOWN_AS_CHILDREN.has(key))
-      : []
+      ? Object.entries(node.args).filter(([key]) => !shown.has(key))
+      : node.xcm && node.args !== undefined
+        ? [["value", node.args] as [string, unknown]]
+        : []
 
   return (
     <li className="py-1">
@@ -58,8 +64,11 @@ function Node({ node }: { node: CallNode }) {
             )}
           </span>
         ) : (
-          <span className="font-mono text-sm">
-            {node.pallet}.{node.name}
+          <span
+            className={`font-mono text-sm ${isPlumbing(node) ? "text-zinc-500" : ""}`}
+            title={node.xcm ? "An XCM instruction" : undefined}
+          >
+            {node.xcm ? `XCM ${node.name}` : `${node.pallet}.${node.name}`}
           </span>
         )}
         {node.xcmOriginKind && (

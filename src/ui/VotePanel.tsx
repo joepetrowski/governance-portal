@@ -11,7 +11,7 @@ import {
   stageKey,
 } from "../gov/votes"
 import { type Account, useWallet } from "../wallet"
-import { formatBalance, parseBalance, shortAddress } from "./format"
+import { formatExact, parseBalance, shortAddress } from "./format"
 import { choice, TxStatus, useSubmit } from "./tx"
 
 const field =
@@ -100,9 +100,9 @@ function OpenVote(props: {
     amount === ""
       ? null
       : parsed === null || parsed === 0n
-        ? `Enter an amount in ${token}.`
+        ? `Enter an amount in ${token}, with a period for decimals and no commas.`
         : parsed > balance
-          ? `This account holds ${formatBalance(balance, network)}.`
+          ? `This account holds ${formatExact(balance, network)}.`
           : null
   const ready = direction !== null && parsed !== null && parsed > 0n && problem === null && !busy
 
@@ -161,7 +161,9 @@ function OpenVote(props: {
       </div>
       <p className="mt-1 text-xs text-zinc-500">
         {problem ??
-          `Balance ${formatBalance(balance, network)}. A new vote replaces an earlier one.`}
+          (ready
+            ? `Votes with ${formatExact(parsed, network)}. A new vote replaces an earlier one.`
+            : `Balance ${formatExact(balance, network)}. A new vote replaces an earlier one.`)}
       </p>
       <TxStatus state={state} />
     </form>

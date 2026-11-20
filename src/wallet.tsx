@@ -91,8 +91,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!extension) return
-    setAccounts(extension.getAccounts())
-    return extension.subscribe(setAccounts)
+    // Extensions also share Ethereum accounts, which these chains cannot use.
+    const usable = (all: Account[]) => all.filter((a) => !a.address.startsWith("0x"))
+    setAccounts(usable(extension.getAccounts()))
+    return extension.subscribe((all) => setAccounts(usable(all)))
   }, [extension])
 
   const disconnect = useCallback(() => {

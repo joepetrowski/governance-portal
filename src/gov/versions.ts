@@ -54,14 +54,17 @@ async function readReleaseHashes(): Promise<ReleaseHashes> {
 
 /**
  * The release a proposal upgrades to, as a version such as "2.6.0", with whether it covers every
- * chain of its network. Null unless every runtime it authorizes is in one and the same release and
- * every call in it was decoded.
+ * chain of its network. Null unless every runtime it authorizes is in one and the same release,
+ * every call in it was decoded, and it does nothing else: no other calls, and no upgrade that
+ * skips the version checks.
  */
 export function upgradeVersion(
   proposal: Proposal,
   hashes: ReleaseHashes,
 ): { version: string; whole: boolean } | null {
   if (proposal.upgrades.length === 0 || proposal.undecoded.length > 0) return null
+  // A proposal that does more than authorize runtimes keeps the title that says so.
+  if (proposal.otherEffects > 0 || proposal.upgrades.some((u) => u.unchecked)) return null
   const tags = new Set(proposal.upgrades.map((u) => hashes[u.codeHash]))
   const [tag] = tags
   if (tags.size !== 1 || tag === undefined) return null

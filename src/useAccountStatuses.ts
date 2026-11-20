@@ -11,11 +11,13 @@ export function useAccountStatuses(addresses: string[], snapshot: Snapshot | nul
     if (!snapshot || key === "") return
     let canceled = false
     const stages = snapshot.proposals.flatMap((p) => [p.fellowship, p.open]).filter((s) => !!s)
-    Promise.all(
-      key.split(",").map((address) => loadAccountStatus(address, stages, snapshot.pending)),
-    )
+    // One account that cannot be read must not hide the others.
+    const loads = key
+      .split(",")
+      .map((address) => loadAccountStatus(address, stages, snapshot.pending).catch(() => null))
+    Promise.all(loads)
       .then((next) => {
-        if (!canceled) setStatuses(next)
+        if (!canceled) setStatuses(next.filter((s) => s !== null))
       })
       .catch(() => {
         // Keep the previous result; the next snapshot retries.
