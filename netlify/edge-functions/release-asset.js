@@ -23,6 +23,7 @@ export default async (_request, context) => {
     headers: {
       "content-type": "application/octet-stream",
       "cache-control": "public, max-age=3600",
+      "x-content-type-options": "nosniff",
     },
   })
 }

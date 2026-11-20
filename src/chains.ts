@@ -81,7 +81,10 @@ interface ChainConfig {
   name: string
   /** `null` for the Relay Chain. */
   paraId: number | null
-  /** Public RPC endpoints, in order of preference. Empty if none is known yet. */
+  /**
+   * Public RPC endpoints, in order of preference. Empty if none is known yet. Each provider must
+   * also be allowed by the content security policy in `netlify.toml`, or browsers block it.
+   */
   rpcs: string[]
   /** Runtime name as used in Fellowship release artifacts. */
   runtime: string
