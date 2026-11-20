@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig } from "vitest/config"
 
 // In production, /release-asset is served by the Netlify edge function in
 // netlify/edge-functions/release-asset.js. Locally, Vite proxies the same path to GitHub.
@@ -19,4 +19,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { proxy: releaseAssetProxy },
   preview: { proxy: releaseAssetProxy },
+  // The tests decode recorded calls against the bundled metadata, so they need no network.
+  test: { environment: "node", include: ["tests/**/*.test.ts"] },
 })

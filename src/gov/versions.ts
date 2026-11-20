@@ -28,6 +28,22 @@ export function loadReleaseHashes(): Promise<ReleaseHashes> {
   return cached
 }
 
+/**
+ * Collect the runtime hashes from the notes of releases, as the GitHub API returns them. Releases
+ * whose tag is not a version such as "v2.6.0" are ignored.
+ */
+export function parseReleaseHashes(
+  releases: { tag_name: string; body: string | null }[],
+): ReleaseHashes {
+  const hashes: ReleaseHashes = {}
+  for (const release of releases) {
+    if (!/^v\d+\.\d+\.\d+$/.test(release.tag_name)) continue
+    for (const [, hash] of (release.body ?? "").matchAll(/Blake2-256 hash:\s*(0x[0-9a-f]{64})/g))
+      hashes[hash] = release.tag_name
+  }
+  return hashes
+}
+
 async function readReleaseHashes(): Promise<ReleaseHashes> {
   try {
     const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")
@@ -37,13 +53,7 @@ async function readReleaseHashes(): Promise<ReleaseHashes> {
   }
   const response = await fetch(RELEASES_URL)
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for the releases.`)
-  const releases = (await response.json()) as { tag_name: string; body: string | null }[]
-  const hashes: ReleaseHashes = {}
-  for (const release of releases) {
-    if (!/^v\d+\.\d+\.\d+$/.test(release.tag_name)) continue
-    for (const [, hash] of (release.body ?? "").matchAll(/Blake2-256 hash:\s*(0x[0-9a-f]{64})/g))
-      hashes[hash] = release.tag_name
-  }
+  const hashes = parseReleaseHashes(await response.json())
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ at: Date.now(), hashes }))
   } catch {

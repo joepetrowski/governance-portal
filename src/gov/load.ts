@@ -184,11 +184,13 @@ interface Ongoing {
 
 const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
 
-// Minimum rank that can vote on a Fellowship track, as `MinRankOfClass` in the Collectives runtime
-// (fellowship/tracks.rs). Tracks 1-9 are the voice of that rank and above. Retention (11-16),
-// promotion (21-26), and fast promotion (31-33) tracks end in the rank being decided, and voters
-// must be two ranks above it: Retain at or promote to III Dan needs rank 5.
-function fellowshipMinRank(track: number): number {
+/**
+ * Minimum rank that can vote on a Fellowship track, as `MinRankOfClass` in the Collectives runtime
+ * (fellowship/tracks.rs). Tracks 1-9 are the voice of that rank and above. Retention (11-16),
+ * promotion (21-26), and fast promotion (31-33) tracks end in the rank being decided, and voters
+ * must be two ranks above it: Retain at or promote to III Dan needs rank 5.
+ */
+export function fellowshipMinRank(track: number): number {
   return track <= 9 ? track : (track % 10) + 2
 }
 
@@ -458,7 +460,11 @@ function describe(call: CallNode | null): string {
   return `${formatList(what)} on ${formatList(where)}`
 }
 
-function makeProposal(parts: {
+/**
+ * Build the proposal that a card shows from its referenda and the call they lead to: its title,
+ * the upgrades it authorizes, what else it does, and what could not be decoded.
+ */
+export function makeProposal(parts: {
   network: Network
   fellowship?: Stage
   open?: Stage
