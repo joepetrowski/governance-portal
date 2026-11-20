@@ -1,20 +1,23 @@
 import { useState } from "react"
-import { type Network, NETWORK_IDS, NETWORKS } from "./chains"
+import { CHAINS, type Network, NETWORK_IDS, NETWORKS } from "./chains"
 import type { Proposal } from "./gov/load"
 import { CleanupPanel, needsCleanup } from "./ui/CleanupPanel"
 import { formatTime } from "./ui/format"
 import { ProposalCard } from "./ui/ProposalCard"
 import { ReleaseWizard } from "./ui/ReleaseWizard"
 import { choice } from "./ui/tx"
+import { UpgradePanel } from "./ui/UpgradePanel"
 import { WalletButton } from "./ui/WalletButton"
 import { useAccountStatuses } from "./useAccountStatuses"
+import { useChainUpgrades } from "./useChainUpgrades"
 import { useCleanups } from "./useCleanups"
 import { useReleaseHashes } from "./useReleaseHashes"
 import { useSnapshot } from "./useSnapshot"
 import { useWallet } from "./wallet"
 
 /**
- * The page: header with the wallet, the release wizard, pending cleanup, and the open proposals.
+ * The page: header with the wallet, the release wizard, approved upgrades, pending cleanup, and
+ * the open proposals.
  */
 export default function App() {
   const { snapshot, error, refresh } = useSnapshot()
@@ -24,9 +27,10 @@ export default function App() {
     snapshot,
   )
 
+  const chainUpgrades = useChainUpgrades(snapshot)
   // Release notes are read only when an upgrade is on the page to be named.
   const releaseHashes = useReleaseHashes(
-    snapshot?.proposals.some((p) => p.upgrades.length > 0) ?? false,
+    chainUpgrades.length > 0 || (snapshot?.proposals.some((p) => p.upgrades.length > 0) ?? false),
   )
 
   const [shown, setShown] = useState<Network | "all">("polkadot")
@@ -68,6 +72,17 @@ export default function App() {
 
       {snapshot && (
         <ReleaseWizard proposals={snapshot.proposals} statuses={statuses} onSubmitted={refresh} />
+      )}
+
+      {snapshot && (
+        <UpgradePanel
+          upgrades={chainUpgrades.filter(
+            (u) => shown === "all" || CHAINS[u.chain].network === shown,
+          )}
+          releaseHashes={releaseHashes}
+          loadedAt={snapshot.loadedAt}
+          onApplied={refresh}
+        />
       )}
 
       <CleanupPanel cleanups={cleanups} onCleaned={refresh} />

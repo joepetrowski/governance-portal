@@ -29,31 +29,36 @@ function dispatchErrorName(error: unknown): string {
   return names.filter((n) => n !== "Module").join(".") || "unknown error"
 }
 
+/** The events of a transaction on its way into a block, as `polkadot-api` reports them. */
+export interface TxEvents {
+  /** Listen to the events. An error means the transaction was not signed or not accepted. */
+  subscribe: (observer: {
+    next: (event: { type: string; ok?: boolean; dispatchError?: unknown }) => void
+    error: (e: unknown) => void
+  }) => unknown
+}
+
 /**
  * The part of a `polkadot-api` transaction that submitting needs, so that transactions of any chain
  * fit.
  */
 export interface Submittable {
   /** Sign with the account's signer, submit, and report each step up to finality. */
-  createSubmitAndWatch: (creator: Account["txCreator"]) => {
-    subscribe: (observer: {
-      next: (event: { type: string; ok?: boolean; dispatchError?: unknown }) => void
-      error: (e: unknown) => void
-    }) => unknown
-  }
+  createSubmitAndWatch: (creator: Account["txCreator"]) => TxEvents
 }
 
 /**
- * State and trigger for one transaction: sign with the account, then follow it to finality.
- * `onIncluded` runs when it is in a block and again when it is finalized.
+ * State and triggers for one transaction. `submit` signs with the account and follows the
+ * transaction to finality. `follow` does the same for one that is already submitted, such as an
+ * unsigned one. `onIncluded` runs when it is in a block and again when it is finalized.
  */
 export function useSubmit(onIncluded: () => void) {
   const [state, setState] = useState<TxState>({ step: "idle" })
   const busy = state.step === "signing" || state.step === "broadcast" || state.step === "included"
 
-  const submit = (tx: Submittable, account: Account) => {
-    setState({ step: "signing" })
-    tx.createSubmitAndWatch(account.txCreator).subscribe({
+  const follow = (events: TxEvents) => {
+    setState((current) => (current.step === "signing" ? current : { step: "broadcast" }))
+    events.subscribe({
       next: (event) => {
         if (event.type === "broadcasted") setState({ step: "broadcast" })
         if (event.type !== "inBestBlock" && event.type !== "finalized") return
@@ -71,7 +76,11 @@ export function useSubmit(onIncluded: () => void) {
         setState({ step: "failed", reason: e instanceof Error ? e.message : String(e) }),
     })
   }
-  return { state, busy, submit }
+  const submit = (tx: Submittable, account: Account) => {
+    setState({ step: "signing" })
+    follow(tx.createSubmitAndWatch(account.txCreator))
+  }
+  return { state, busy, submit, follow }
 }
 
 /**
