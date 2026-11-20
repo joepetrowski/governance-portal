@@ -1,4 +1,4 @@
-// Dev tool: print the governance snapshot the UI renders. Run with `npx tsx scripts/snapshot.ts`.
+// Dev tool: Print the governance snapshot the UI renders. Run with `npx tsx scripts/snapshot.ts`.
 import { loadSnapshot } from "../src/gov/load"
 import { walk, chainLabel } from "../src/gov/decode"
 

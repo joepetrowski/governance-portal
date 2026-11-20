@@ -1,4 +1,4 @@
-// Dev tool: show stale votes and locks for accounts, and the weight of the cleanup batch.
+// Dev tool: Show stale votes and locks for accounts, and the weight of the cleanup batch.
 // Run with `npx tsx scripts/cleanup.ts [address...]`. Never signs or submits anything.
 // With no address, it picks accounts that still have votes on record on the Root track.
 import { toHex } from "polkadot-api/utils"

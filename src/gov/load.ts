@@ -170,7 +170,7 @@ const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
 // Minimum rank that can vote on a Fellowship track, as `MinRankOfClass` in the Collectives runtime
 // (fellowship/tracks.rs). Tracks 1-9 are the voice of that rank and above. Retention (11-16),
 // promotion (21-26), and fast promotion (31-33) tracks end in the rank being decided, and voters
-// must be two ranks above it: retain at or promote to III Dan needs rank 5.
+// must be two ranks above it: Retain at or promote to III Dan needs rank 5.
 function fellowshipMinRank(track: number): number {
   return track <= 9 ? track : (track % 10) + 2
 }
@@ -250,7 +250,7 @@ const SCAN_MARGIN = 14_400
  * submitted. Indexes are scanned from the newest down. A referendum cannot stay open longer than
  * the undeciding timeout plus the longest decision and confirmation periods, and indexes follow
  * the order of submission, so the scan stops at the first referendum that ended longer ago than
- * that: everything below it was submitted earlier still, and must have ended too.
+ * that: Everything below it was submitted earlier still, and must have ended too.
  */
 async function ongoingReferenda(network: Network, tracks: TrackInfo[], now: number) {
   const api = assetHubApi(network)
@@ -496,7 +496,7 @@ function foreignNetwork(call: CallNode | null): Network | null {
  * their calls, and join them into proposals. Fails if the Fellowship or Polkadot cannot be read;
  * a failure to read Kusama is reported in `unreachable`.
  *
- * Polkadot is always read. `networks` says which others to read with it: leaving Kusama out gives
+ * Polkadot is always read. `networks` says which others to read with it: Leaving Kusama out gives
  * a faster first result, with Kusama listed in `pending`.
  */
 export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<Snapshot> {

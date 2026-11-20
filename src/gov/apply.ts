@@ -1,6 +1,6 @@
 // The last step of an upgrade. An approved referendum only authorizes a runtime by its hash, on
 // each chain. The runtime itself then has to be handed to the chain with
-// `System.apply_authorized_upgrade`, which anyone may do: the chain accepts the call without a
+// `System.apply_authorized_upgrade`, which anyone may do: The chain accepts the call without a
 // signature and without a fee, as long as the code matches the authorized hash.
 
 import { toHex } from "polkadot-api/utils"

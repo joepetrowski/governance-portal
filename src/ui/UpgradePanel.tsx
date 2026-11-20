@@ -91,7 +91,7 @@ export function UpgradePanel(props: {
       <h2 className="text-lg font-semibold">Approved upgrades</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         A referendum authorizes a new runtime by its hash. The runtime itself must then be given to
-        each chain, which anyone can do: it needs no wallet and costs nothing, and the chain accepts
+        each chain, which anyone can do. It needs no wallet and costs nothing, and the chain accepts
         only the runtime that was authorized.
       </p>
       <ul className="mt-3 space-y-3">

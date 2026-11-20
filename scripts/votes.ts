@@ -1,4 +1,4 @@
-// Dev tool: check vote reading and vote call encoding against live chains.
+// Dev tool: Check vote reading and vote call encoding against live chains.
 // Run with `npx tsx scripts/votes.ts [address...]`. Never signs or submits anything.
 import { toHex } from "polkadot-api/utils"
 import { collectivesApi, decodeCallData } from "../src/chains"

@@ -103,7 +103,7 @@ export function CleanupPanel(props: { cleanups: Cleanup[]; onCleaned: () => void
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         Votes stay on record after a public referendum ends, and they keep their balance locked
         until they are removed. Removing a vote that is still within its conviction lock loses
-        nothing: that balance stays locked until the lock expires.
+        nothing: That balance stays locked until the lock expires.
       </p>
       <ul className="mt-3 space-y-3">
         {pending.map(({ cleanup, account }) => (

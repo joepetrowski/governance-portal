@@ -175,7 +175,7 @@ export async function loadCleanup(address: string, network: Network): Promise<Cl
 
 /**
  * One batch that removes up to `MAX_REMOVALS` stale votes and then unlocks every affected track.
- * Removing a vote that is still locked loses nothing: the lock stays until it expires.
+ * Removing a vote that is still locked loses nothing: The lock stays until it expires.
  */
 export function cleanupTx(cleanup: Cleanup) {
   const api = assetHubApi(cleanup.network)

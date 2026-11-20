@@ -127,7 +127,7 @@ function fellowshipBlock(
 
 /**
  * Offered when upgrades for more than one network are built and none of their Fellowship
- * referenda is open yet: one signature opens them all.
+ * referenda is open yet: One signature opens them all.
  */
 function AllFellowship(props: {
   builts: BuiltUpgrade[]
@@ -175,7 +175,7 @@ function Result(props: {
   const wallet = useWallet()
   const [copied, setCopied] = useState(false)
   const status = props.statuses.find((s) => s.address === wallet.selected?.address)
-  // The same upgrade may already be on its way: referenda are matched by the whitelisted hash.
+  // The same upgrade may already be on its way: Referenda are matched by the whitelisted hash.
   const existing = existingFor(built, props.proposals)
   const names = built.runtimes.map((r) => CHAINS[r.chain].name)
 
@@ -223,7 +223,7 @@ function Result(props: {
         />
       </div>
       <p className="mt-3 text-xs text-zinc-500">
-        The two referenda are independent: different accounts can submit them, in either order.
+        The two referenda are independent: Different accounts can submit them, in either order.
         Whoever builds the same release and chains gets the same call, so you can submit one and
         send this link to someone who can submit the other.{" "}
         <button

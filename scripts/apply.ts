@@ -1,6 +1,6 @@
-// Dev tool: check the last step of an upgrade against live chains. Run with
+// Dev tool: Check the last step of an upgrade against live chains. Run with
 // `npx tsx scripts/apply.ts`. It reads which upgrades are authorized or scheduled, and builds the
-// unsigned `apply_authorized_upgrade` transaction for one runtime without submitting it: the
+// unsigned `apply_authorized_upgrade` transaction for one runtime without submitting it: The
 // chain is only asked whether it would accept the transaction.
 import { toHex } from "polkadot-api/utils"
 import { type ChainId, CHAINS, getClient, NETWORK_IDS } from "../src/chains"

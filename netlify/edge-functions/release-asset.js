@@ -16,7 +16,7 @@ export default async (_request, context) => {
   const upstream = await fetch(
     `https://github.com/polkadot-fellows/runtimes/releases/download/${tag}/${file}`,
   )
-  // Always 502, also for a missing asset: on a 404, Netlify would retry the path as a page.
+  // Always 502, also for a missing asset: On a 404, Netlify would retry the path as a page.
   if (!upstream.ok) return new Response(`GitHub answered ${upstream.status}`, { status: 502 })
 
   return new Response(upstream.body, {

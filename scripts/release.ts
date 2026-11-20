@@ -1,4 +1,4 @@
-// Dev tool: run the release wizard's logic against a real release and live chains.
+// Dev tool: Run the release wizard's logic against a real release and live chains.
 // Run with `npx tsx scripts/release.ts [tag]`. Never signs or submits anything.
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"

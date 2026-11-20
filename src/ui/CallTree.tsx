@@ -24,7 +24,7 @@ function formatValue(value: unknown): string {
     .join(", ")} }`
 }
 
-// A `send` is plumbing: what matters is the call it delivers and where.
+// A `send` is plumbing: What matters is the call it delivers and where.
 const isTransport = (node: CallNode) =>
   node.children.length > 0 &&
   (isCallTo(node, "PolkadotXcm", "send") || isCallTo(node, "XcmPallet", "send"))

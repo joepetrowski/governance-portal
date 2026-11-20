@@ -60,7 +60,7 @@ export const NOT_LOADED = "Not loaded yet"
 
 /**
  * Decode call data against the live runtime of the chain, and follow every call it dispatches, on
- * that chain or over XCM. Never throws: a call that cannot be decoded becomes a node with
+ * that chain or over XCM. Never throws: A call that cannot be decoded becomes a node with
  * `undecoded` set. Calls on a chain of a network in `skip` are left undecoded without connecting
  * to it, with `NOT_LOADED` as the reason.
  */
@@ -113,7 +113,7 @@ async function fromDecoded(
   const one = (inner: { type: string; value: Tagged }) =>
     fromDecoded(chain, inner, skip).then((child) => [child])
 
-  // Calls nested on the same chain: by convention these arguments are named `call` or `calls`.
+  // Calls nested on the same chain: By convention these arguments are named `call` or `calls`.
   for (const [key, value] of Object.entries(args)) {
     if (key === "calls" && Array.isArray(value)) children.push(...value.filter(isCall).map(one))
     else if (isCall(value) && (key === "call" || key.endsWith("_call"))) children.push(one(value))

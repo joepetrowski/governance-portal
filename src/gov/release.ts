@@ -270,7 +270,7 @@ export async function buildUpgrade(
     plans.map(async ({ chain, file, asset }) => {
       if (!asset) throw new Error(`The release has no runtime for ${CHAINS[chain].name}.`)
       const bytes = await fetchAsset(release.tag, file)
-      // The proxy is not trusted: the bytes must match what GitHub says the asset is.
+      // The proxy is not trusted: The bytes must match what GitHub says the asset is.
       if (bytes.length !== asset.size)
         throw new Error(`${file} is ${bytes.length} bytes, but the release lists ${asset.size}.`)
       if (asset.digest?.startsWith("sha256:") && (await sha256Hex(bytes)) !== asset.digest.slice(7))
