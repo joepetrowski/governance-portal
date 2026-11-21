@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import type { Stage } from "../gov/load"
-import { duration, formatBalance, percent, shortAddress } from "./format"
+import { duration, formatBalance, percent } from "./format"
+import { Short } from "./Short"
 
 function statusLine(stage: Stage): { label: string; detail: string } {
   const { status, now, blockMs } = stage
@@ -36,6 +37,7 @@ function statusLine(stage: Stage): { label: string; detail: string } {
 function Meter(props: { label: string; current: number | null; required: number }) {
   const { label, current, required } = props
   const met = current !== null && current >= required
+  const shown = current === null ? "no votes" : percent(current)
   return (
     <div>
       <div className="flex items-baseline justify-between text-sm">
@@ -44,12 +46,20 @@ function Meter(props: { label: string; current: number | null; required: number 
           <span
             className={met ? "font-medium text-emerald-700 dark:text-emerald-400" : "font-medium"}
           >
-            {current === null ? "no votes" : percent(current)}
+            {shown}
           </span>
           <span className="text-zinc-500 dark:text-zinc-400"> · needs {percent(required)}</span>
         </span>
       </div>
-      <div className="relative mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(Math.min(1, current ?? 0) * 100)}
+        aria-valuetext={`${shown}, needs ${percent(required)}`}
+        className="relative mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800"
+      >
         <div
           className={`h-2 rounded-full ${met ? "bg-emerald-500" : "bg-amber-500"}`}
           style={{ width: `${Math.min(100, (current ?? 0) * 100)}%` }}
@@ -78,7 +88,15 @@ function TimeBar({ stage }: { stage: Stage }) {
           {percent(elapsed)} elapsed
         </span>
       </div>
-      <div className="mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800">
+      <div
+        role="progressbar"
+        aria-label={status.phase === "confirming" ? "Confirmation period" : "Decision period"}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(elapsed * 100)}
+        aria-valuetext={`${percent(elapsed)} elapsed`}
+        className="mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800"
+      >
         <div className="h-2 rounded-full bg-zinc-500" style={{ width: `${elapsed * 100}%` }} />
       </div>
     </div>
@@ -93,10 +111,7 @@ function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
       <span className="text-zinc-600 dark:text-zinc-400">Decision deposit</span>
       {placed ? (
         <span>
-          {formatBalance(placed.amount, stage.network)} placed by{" "}
-          <span className="font-mono" title={placed.who}>
-            {shortAddress(placed.who)}
-          </span>
+          {formatBalance(placed.amount, stage.network)} placed by <Short value={placed.who} />
         </span>
       ) : (
         <span className="flex flex-wrap items-center justify-end gap-2">
@@ -149,10 +164,7 @@ export function StagePanel(props: {
       </div>
       <DepositRow stage={stage} action={props.depositAction} />
       <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
-        <span className="font-mono" title={stage.submitter}>
-          {shortAddress(stage.submitter)}
-        </span>
+        Aye {stage.ayes} · Nay {stage.nays} · submitted by <Short value={stage.submitter} />
       </p>
       {children}
     </section>

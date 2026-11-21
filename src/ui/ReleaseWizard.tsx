@@ -19,7 +19,8 @@ import {
 import type { AccountStatus } from "../gov/votes"
 import { useWallet } from "../wallet"
 import { CallTree } from "./CallTree"
-import { formatBalance, formatList, shortHex } from "./format"
+import { formatBalance, formatList } from "./format"
+import { Short } from "./Short"
 import { loadOpengov } from "./opengov"
 import { choice, type Submittable, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
@@ -281,15 +282,15 @@ function Result(props: {
           {built.runtimes.map((r) => (
             <div key={r.chain}>
               <dt className="inline">{CHAINS[r.chain].name} code hash </dt>
-              <dd className="inline font-mono" title={r.codeHash}>
-                {shortHex(r.codeHash)}
+              <dd className="inline">
+                <Short value={r.codeHash} />
               </dd>
             </div>
           ))}
           <div>
             <dt className="inline">Whitelisted call hash </dt>
-            <dd className="inline font-mono" title={built.proposal.hash}>
-              {shortHex(built.proposal.hash)}
+            <dd className="inline">
+              <Short value={built.proposal.hash} />
             </dd>
           </div>
         </dl>

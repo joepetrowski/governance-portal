@@ -3,6 +3,7 @@ import { CHAINS, NETWORKS, RELAY_BLOCK_MS } from "../chains"
 import { applyUpgrade, type ChainUpgrade } from "../gov/apply"
 import type { ReleaseHashes } from "../gov/versions"
 import { formatDateTime, shortHex } from "./format"
+import { Short } from "./Short"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
 import { errorMessage } from "../util"
@@ -44,7 +45,7 @@ function UpgradeRow(props: {
               on {NETWORKS[network].name}
             </span>
           </p>
-          <p className="mt-1 text-zinc-600 dark:text-zinc-400" title={upgrade.codeHash}>
+          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
             {upgrade.state === "authorized"
               ? `The upgrade to ${what} is approved and waits for someone to apply it.`
               : `The upgrade to ${what} is applied, and the Relay Chain will enact it` +
@@ -58,6 +59,9 @@ function UpgradeRow(props: {
               (props.releaseHashes
                 ? " This runtime is not in a recent release, so it cannot be applied from here."
                 : " The releases could not be read yet, so it cannot be applied from here for now.")}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Code hash <Short value={upgrade.codeHash} />
           </p>
         </div>
         {upgrade.state === "authorized" && tag && (

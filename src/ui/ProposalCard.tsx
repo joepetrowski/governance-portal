@@ -4,7 +4,8 @@ import { type ReleaseHashes, upgradeVersion } from "../gov/versions"
 import type { AccountStatus } from "../gov/votes"
 import { CallTree } from "./CallTree"
 import { DepositButton } from "./DepositButton"
-import { formatList, shortHex } from "./format"
+import { formatList } from "./format"
+import { Short } from "./Short"
 import { Prose } from "./Prose"
 import { StageNote, StagePanel } from "./StagePanel"
 import { VotePanel } from "./VotePanel"
@@ -115,7 +116,6 @@ export function ProposalCard(props: Props) {
           {proposal.upgrades.map((u) => (
             <li
               key={u.chain}
-              title={`Code hash ${u.codeHash}`}
               className="rounded-full bg-pink-100 px-2.5 py-0.5 text-xs font-medium text-pink-900 dark:bg-pink-950 dark:text-pink-200"
             >
               {short(u.chain)}
@@ -165,12 +165,14 @@ export function ProposalCard(props: Props) {
           <div className="mt-2 overflow-x-auto">
             <CallTree call={proposal.call} />
           </div>
+          {proposal.upgrades.map((u) => (
+            <p key={u.chain} className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              {u.chain} code hash <Short value={u.codeHash} />
+            </p>
+          ))}
           {proposal.whitelist && (
             <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-              Whitelisted call hash{" "}
-              <span className="font-mono" title={proposal.whitelist.hash}>
-                {shortHex(proposal.whitelist.hash)}
-              </span>
+              Whitelisted call hash <Short value={proposal.whitelist.hash} />
             </p>
           )}
         </details>
