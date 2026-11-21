@@ -8,7 +8,7 @@ vi.mock("../src/chains", async (original) => ({
 }))
 
 const { decodeCall } = await import("../src/gov/decode")
-const { fellowshipMinRank, makeProposal } = await import("../src/gov/load")
+const { effectsBesidesWhitelist, fellowshipMinRank, makeProposal } = await import("../src/gov/load")
 const { parseReleaseHashes, upgradeVersion } = await import("../src/gov/versions")
 
 const proposalOf = async (hex: string, chain: "assetHub" | "kusamaAssetHub" = "assetHub") => {
@@ -117,5 +117,27 @@ describe("fellowshipMinRank", () => {
     expect(fellowshipMinRank(13)).toBe(5)
     expect(fellowshipMinRank(23)).toBe(5)
     expect(fellowshipMinRank(32)).toBe(4)
+  })
+})
+
+describe("effectsBesidesWhitelist", () => {
+  // The hash that Fellowship referendum 681 whitelists on Polkadot Asset Hub.
+  const HASH = "0x680f831072c8c3b77dd52407f095e4f2254568ff5b6ba1fd13766f8f1ba981ed"
+
+  it("is zero for a Fellowship referendum that only whitelists the call", async () => {
+    const call = await decodeCall({ id: "collectives" }, fromHex(fixtures.fellowship681))
+    expect(effectsBesidesWhitelist(call, "polkadot", HASH)).toBe(0)
+    expect(effectsBesidesWhitelist(null, "polkadot", HASH)).toBe(0)
+  })
+
+  it("counts a whitelist of another hash, or on another network", async () => {
+    const call = await decodeCall({ id: "collectives" }, fromHex(fixtures.fellowship681))
+    expect(effectsBesidesWhitelist(call, "polkadot", `0x${"00".repeat(32)}`)).toBe(1)
+    expect(effectsBesidesWhitelist(call, "kusama", HASH)).toBe(1)
+  })
+
+  it("counts everything that is not the whitelist", async () => {
+    const batch = await decodeCall({ id: "assetHub" }, fromHex(fixtures.craftedUpgradeWithTransfer))
+    expect(effectsBesidesWhitelist(batch, "polkadot", HASH)).toBe(2)
   })
 })

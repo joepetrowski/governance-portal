@@ -257,9 +257,15 @@ export const COLLECTIVES_BLOCK_MS = 12_000
 const DECODE_TIMEOUT_MS = 20_000
 
 const clients = new Map<ChainId, PolkadotClient>()
+let suspended = false
 
-/** A lazily created client per chain. Throws if the chain has no known endpoint. */
+/**
+ * A lazily created client per chain. Throws if the chain has no known endpoint, or if the
+ * connections are closed until `resumeClients`.
+ */
 export function getClient(chain: ChainId): PolkadotClient {
+  // Work that was under way when the connections were closed must not open them again.
+  if (suspended) throw new Error("Disconnected while the page is in the background")
   let client = clients.get(chain)
   if (!client) {
     const { rpcs, name } = CHAINS[chain]
@@ -289,13 +295,20 @@ export function holdClients(): () => void {
 
 /**
  * Close the connection to every chain, unless something holds them open. Returns whether they
- * were closed. `getClient` connects again when a chain is next needed.
+ * were closed. Until `resumeClients` is called, `getClient` then refuses to connect again, so that
+ * reads still under way fail instead of reconnecting.
  */
 export function closeClients(): boolean {
   if (holds > 0) return false
+  suspended = true
   for (const client of clients.values()) client.destroy()
   clients.clear()
   return true
+}
+
+/** Let `getClient` connect again after `closeClients`. */
+export function resumeClients(): void {
+  suspended = false
 }
 
 const polkadotAssetHubApi = () => getClient("assetHub").getTypedApi(assetHub)

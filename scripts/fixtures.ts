@@ -91,6 +91,54 @@ out.craftedIfElse = toHex(
   ).encoded,
 )
 out.craftedTransfer = toHex(transfer.encoded)
+// An origin has the shape of a call, and must not be taken for one.
+const collectives: any = getClient("collectives").getUnsafeApi()
+out.craftedSubmit = toHex(
+  (
+    await enc(
+      collectives.tx.FellowshipReferenda.submit({
+        proposal_origin: {
+          type: "FellowshipOrigins",
+          value: { type: "Fellows", value: undefined },
+        },
+        proposal: { type: "Inline", value: new Uint8Array(2) },
+        enactment_moment: { type: "After", value: 10 },
+      }),
+    )
+  ).encoded,
+)
+// Versioned assets have the outer shape of an XCM program, and must not be taken for one.
+const treasury = {
+  type: "AccountId32",
+  value: {
+    network: undefined,
+    id: "0x" + "6d6f646c70792f74727372790000000000000000000000000000000000000000",
+  },
+}
+out.craftedTeleport = toHex(
+  (
+    await enc(
+      ah.tx.PolkadotXcm.limited_teleport_assets({
+        dest: { type: "V5", value: { parents: 1, interior: { type: "Here", value: undefined } } },
+        beneficiary: {
+          type: "V5",
+          value: { parents: 0, interior: { type: "X1", value: treasury } },
+        },
+        assets: {
+          type: "V5",
+          value: [
+            {
+              id: { parents: 1, interior: { type: "Here", value: undefined } },
+              fun: { type: "Fungible", value: 10n ** 16n },
+            },
+          ],
+        },
+        fee_asset_item: 0,
+        weight_limit: { type: "Unlimited", value: undefined },
+      }),
+    )
+  ).encoded,
+)
 writeFileSync("tests/fixtures.json", JSON.stringify(out, null, 2) + "\n")
 for (const [k, v] of Object.entries(out)) console.log(k, (v.length - 2) / 2, "bytes")
 process.exit(0)

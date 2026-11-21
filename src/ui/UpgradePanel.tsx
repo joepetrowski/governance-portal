@@ -58,7 +58,7 @@ function UpgradeRow(props: {
               !tag &&
               (props.releaseHashes
                 ? " This runtime is not in a recent release, so it cannot be applied from here."
-                : " The releases could not be read yet, so it cannot be applied from here for now.")}
+                : " The releases could not be read, so it cannot be applied from here for now.")}
           </p>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             Code hash <Short value={upgrade.codeHash} />

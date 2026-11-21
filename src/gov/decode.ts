@@ -54,11 +54,11 @@ export const chainLabel = (ref: ChainRef) =>
     ? `${CHAINS[ref.id].network === "kusama" ? "Kusama " : ""}${CHAINS[ref.id].name}`
     : ref.external
 
-/** BLAKE2b-256 hash of the bytes, as hex with a `0x` prefix. */
 /** A value as hex if it is bytes, and as a string otherwise. Hashes decode to either. */
 export const hexOf = (value: unknown): string =>
   value instanceof Uint8Array ? toHex(value) : String(value)
 
+/** BLAKE2b-256 hash of the bytes, as hex with a `0x` prefix. */
 export const blake2Hex = (bytes: Uint8Array) => toHex(Blake2256(bytes))
 
 type Tagged = { type: string; value?: unknown }
@@ -106,8 +106,15 @@ const failed = (chain: ChainRef, bytes: Uint8Array, reason: string): CallNode =>
   undecoded: reason,
 })
 
-const isXcmProgram = (v: unknown): v is { type: string; value: unknown[] } =>
-  isTagged(v) && /^V\d+$/.test(v.type) && Array.isArray(v.value)
+// A versioned XCM program is a versioned list of instructions, each of which is an enum. Versioned
+// assets, as the transfer calls take them, are a versioned list too, but an asset is a record. An
+// empty list could be either, and is left among the arguments.
+const isXcmProgram = (v: unknown): v is { type: string; value: Tagged[] } =>
+  isTagged(v) &&
+  /^V\d+$/.test(v.type) &&
+  Array.isArray(v.value) &&
+  v.value.length > 0 &&
+  v.value.every(isTagged)
 
 async function fromDecoded(
   chain: ChainRef & { id: ChainId },

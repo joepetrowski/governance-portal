@@ -36,6 +36,12 @@ function FellowshipStage({ proposal, fellowshipUncertain, statuses, onVoted }: P
   if (!proposal.whitelist) return null
   if (proposal.whitelist.whitelisted)
     return <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
+  if (proposal.whitelist.whitelisted === null)
+    return (
+      <StageNote title="Fellowship">
+        Whether the Fellowship has whitelisted this call could not be read.
+      </StageNote>
+    )
   // An open Fellowship referendum that could not be read may be the one for this call, so
   // neither claim that there is none nor offer to open another.
   if (fellowshipUncertain)
@@ -115,7 +121,7 @@ export function ProposalCard(props: Props) {
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {proposal.upgrades.map((u) => (
             <li
-              key={u.chain}
+              key={`${u.chain}-${u.codeHash}`}
               className="rounded-full bg-pink-100 px-2.5 py-0.5 text-xs font-medium text-pink-900 dark:bg-pink-950 dark:text-pink-200"
             >
               {short(u.chain)}
@@ -136,6 +142,16 @@ export function ProposalCard(props: Props) {
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
           This proposal does more than upgrade runtimes. See "What it does" for the{" "}
           {proposal.otherEffects === 1 ? "other call" : `${proposal.otherEffects} other calls`}.
+        </p>
+      )}
+      {proposal.fellowshipExtra > 0 && (
+        <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+          The Fellowship referendum does more than whitelist this call. See "What the Fellowship
+          referendum does" for the{" "}
+          {proposal.fellowshipExtra === 1
+            ? "other call"
+            : `${proposal.fellowshipExtra} other calls`}
+          .
         </p>
       )}
       {proposal.upgrades.some((u) => u.unchecked) && (
@@ -166,7 +182,10 @@ export function ProposalCard(props: Props) {
             <CallTree call={proposal.call} />
           </div>
           {proposal.upgrades.map((u) => (
-            <p key={u.chain} className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <p
+              key={`${u.chain}-${u.codeHash}`}
+              className="mt-2 text-xs text-zinc-500 dark:text-zinc-400"
+            >
               {u.chain} code hash <Short value={u.codeHash} />
             </p>
           ))}
@@ -175,6 +194,16 @@ export function ProposalCard(props: Props) {
               Whitelisted call hash <Short value={proposal.whitelist.hash} />
             </p>
           )}
+        </details>
+      )}
+      {proposal.fellowshipExtra > 0 && proposal.fellowship?.call && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            What the Fellowship referendum does
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <CallTree call={proposal.fellowship.call} />
+          </div>
         </details>
       )}
     </article>

@@ -54,8 +54,13 @@ describe("identityName", () => {
   it("is nothing for a sub-identity without both parts", () => {
     expect(identityName(undefined, { display: undefined, subName: raw("ops") })).toBeNull()
     expect(identityName(undefined, { display: raw("Alice"), subName: { type: "None" } })).toBeNull()
-    // The account's own name does not stand in: It is named as part of its parent or not at all.
-    expect(identityName(raw("Own"), { display: undefined, subName: raw("ops") })).toBeNull()
+  })
+
+  it("prefers the account's own name to a sub-identity that another account gave it", () => {
+    // Anyone with an identity can add any account as a sub, so the claim must not win.
+    const claim = { display: raw("Mallory"), subName: raw("Treasury") }
+    expect(identityName(raw("Alice"), claim)).toBe("Alice")
+    expect(identityName({ type: "None" }, claim)).toBe("Mallory/Treasury")
   })
 })
 

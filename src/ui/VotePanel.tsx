@@ -184,12 +184,18 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
     wallet.accounts.find((a) => a.address === address)?.name ?? shortAddress(address)
   const cast = statuses
     .map((status) => ({ status, vote: status.votes[stageKey(stage)] }))
-    .filter(({ vote }) => vote && vote.type !== "none")
+    .filter(({ vote }) => vote?.type === "voted" || vote?.type === "delegating")
+  // The votes on this referendum could not be read, and neither could the balance to vote with.
+  const unread = statuses.some((s) => s.votes[stageKey(stage)]?.type === "unknown")
   const selected = statuses.find((s) => s.address === wallet.selected?.address)
 
   return (
     <div className="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-      {cast.length === 0 ? (
+      {unread ? (
+        <p className="text-sm text-amber-800 dark:text-amber-300">
+          Unable to read your votes on this referendum. Voting is available once they can be read.
+        </p>
+      ) : cast.length === 0 ? (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           {statuses.length === 1
             ? "Your account has not voted."
@@ -207,7 +213,7 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
           ))}
         </ul>
       )}
-      {wallet.selected && selected && (
+      {wallet.selected && selected && !unread && (
         <div className="mt-3">
           {stage.body === "fellowship" ? (
             <FellowshipVote

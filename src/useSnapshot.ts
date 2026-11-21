@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { closeClients } from "./chains"
+import { closeClients, resumeClients } from "./chains"
 import { loadSnapshot, type Snapshot } from "./gov/load"
 import { errorMessage } from "./util"
 
@@ -38,10 +38,13 @@ export function useSnapshot() {
       if (document.hidden) timer = setTimeout(sleep, IDLE_MS)
       else if (asleep.current) {
         asleep.current = false
+        resumeClients()
         refresh()
       }
     }
     document.addEventListener("visibilitychange", onVisibility)
+    // A page that is opened in the background never becomes hidden, so start counting now.
+    if (document.hidden) timer = setTimeout(sleep, IDLE_MS)
     return () => {
       clearTimeout(timer)
       document.removeEventListener("visibilitychange", onVisibility)
@@ -55,24 +58,27 @@ export function useSnapshot() {
     // it is there. Every read after it includes Kusama and replaces the result when it is
     // complete.
     const tick = async () => {
-      // Reading would connect again. The loop restarts when the page is shown.
-      if (asleep.current) return
+      // The loop ends when the page goes to sleep, and restarts when the page is shown. A read
+      // that was under way when the connections closed is cut short, so its result is dropped and
+      // its failure is not reported.
+      const stopped = () => canceled || asleep.current
+      if (stopped()) return
       try {
         if (first.current) {
           const polkadot = await loadSnapshot(["polkadot"])
-          if (canceled) return
+          if (stopped()) return
           setSnapshot((current) => current ?? polkadot)
           setError(null)
           first.current = false
         }
         const next = await loadSnapshot()
-        if (canceled) return
+        if (stopped()) return
         setSnapshot(next)
         setError(null)
       } catch (e) {
-        if (!canceled) setError(errorMessage(e))
+        if (!stopped()) setError(errorMessage(e))
       }
-      if (!canceled) timer = setTimeout(tick, REFRESH_MS)
+      if (!stopped()) timer = setTimeout(tick, REFRESH_MS)
     }
     tick()
     return () => {

@@ -11,7 +11,8 @@ import { errorMessage } from "../util"
 /**
  * Opens the Fellowship referendum that whitelists the call of a public referendum which has none.
  * Shown to everyone, and enabled for a selected account of sufficient rank. Renders nothing when
- * the public referendum carries only the hash of its call, from which nothing can be built.
+ * the call is not known: The public referendum names it by hash alone, and its preimage is not on
+ * chain.
  */
 export function WhitelistButton(props: {
   proposal: Proposal

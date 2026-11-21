@@ -63,8 +63,8 @@ function Mark({ standing }: { standing: Standing }) {
 
 /**
  * An account, shown by its identity name on the network if it has one, and by its shortened
- * address otherwise. Every name carries a mark of its standing with registrars. Activating a name shows
- * the address with it, since a name is only what its owner chose.
+ * address otherwise. Every name carries a mark of its standing with registrars. Activating a name
+ * shows the address with it, since a name is only what its owner chose.
  */
 export function AccountName({ address, network }: { address: string; network: Network }) {
   const identity = useName(network, address)

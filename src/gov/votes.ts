@@ -8,9 +8,13 @@ import type { Stage } from "./load"
 /** The direction of a vote. The Fellowship cannot abstain. */
 export type Direction = "aye" | "nay" | "abstain"
 
-/** What an account has done on one referendum: nothing, voted, or delegated the track. */
+/**
+ * What an account has done on one referendum: nothing, voted, or delegated the track. "unknown" if
+ * that could not be read.
+ */
 export type VoteStatus =
   | { type: "none" }
+  | { type: "unknown" }
   | { type: "voted"; direction: Direction | "split"; detail: string }
   | { type: "delegating"; target: string }
 
@@ -75,7 +79,8 @@ export function describeOpenVote(
 
 /**
  * Read an account's Fellowship rank, balances, and votes on the given referenda. A network that
- * is in `skip`, or that cannot be read, counts as a zero balance and no votes.
+ * is in `skip` counts as a zero balance and no votes. One that cannot be read counts as a zero
+ * balance, and the votes on its referenda are "unknown".
  */
 export async function loadAccountStatus(
   address: string,
@@ -106,7 +111,11 @@ export async function loadAccountStatus(
       }
       return account.data
     })
-    return network === "polkadot" ? read : read.catch(() => ({ free: 0n, reserved: 0n }))
+    if (network === "polkadot") return read
+    return read.catch(() => {
+      for (const stage of open) votes[stageKey(stage)] = { type: "unknown" }
+      return { free: 0n, reserved: 0n }
+    })
   }
 
   const [polkadot, kusama, collectivesAccount, member, fellowshipVotes] = await Promise.all([

@@ -179,9 +179,24 @@ describe("decodeCall on calls crafted to hide something", () => {
   })
 
   it("does not take an origin for a call", async () => {
-    // `Referenda.submit` has an origin argument with the same shape as a call.
-    const tree = await decodeCall({ id: "collectives" }, fromHex(fixtures.fellowship681))
-    expect([...walk(tree)].some((n) => n.pallet === "FellowshipOrigins")).toBe(false)
+    // `FellowshipReferenda.submit` has an origin argument with the same shape as a call.
+    const tree = await decodeCall({ id: "collectives" }, fromHex(fixtures.craftedSubmit))
+    expect(named(tree)).toBe("FellowshipReferenda.submit")
+    const origin = (tree.args as { proposal_origin: { type: string } }).proposal_origin
+    expect(origin.type).toBe("FellowshipOrigins")
+    expect(tree.children).toEqual([])
+    expect(tree.shownAsChildren).toEqual([])
+  })
+
+  it("does not take the assets of a transfer for an XCM program", async () => {
+    const tree = await decodeCall({ id: "assetHub" }, fromHex(fixtures.craftedTeleport))
+    expect(named(tree)).toBe("PolkadotXcm.limited_teleport_assets")
+    expect(tree.children).toEqual([])
+    // The assets stay among the arguments, where the amount can be read.
+    expect(tree.shownAsChildren).toEqual([])
+    expect(Object.keys(tree.args as object)).toContain("assets")
+    expect([...walk(tree)].some((n) => n.undecoded)).toBe(false)
+    expect(effects(tree).map(named)).toEqual(["PolkadotXcm.limited_teleport_assets"])
   })
 
   it("keeps the arguments of a call that has no children", async () => {

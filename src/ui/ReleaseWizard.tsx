@@ -128,6 +128,8 @@ function fellowshipBlock(
   if (existing?.fellowship)
     return `Already open as Fellowship referendum #${existing.fellowship.index}.`
   if (existing?.whitelist?.whitelisted) return "The Fellowship has already whitelisted this call."
+  if (existing?.whitelist?.whitelisted === null)
+    return "Whether the Fellowship has whitelisted this call could not be read. Try again shortly."
   if (snapshot.fellowshipUncertain)
     return (
       "Cannot tell whether a Fellowship referendum for this call is already open, because an " +

@@ -83,15 +83,19 @@ export function dataText(data: IdentityData | undefined): string | null {
 }
 
 /**
- * How an account is named: by its own display name, or as "{name}/{sub-name}" if it is a
- * sub-identity of another account. Null if the account, or the account it belongs to, has no
- * display name.
+ * How an account is named: by its own display name if it has one, and otherwise as
+ * "{name}/{sub-name}" if another account has made it a sub-identity. Null if neither gives a name.
+ *
+ * The account's own identity comes first because a sub-identity is only a claim by the parent:
+ * Any account with an identity can add any other account as its sub, without that account's
+ * consent.
  */
 export function identityName(
   own: IdentityData | undefined,
   parent?: { display: IdentityData | undefined; subName: IdentityData },
 ): string | null {
-  if (!parent) return dataText(own)
+  const ownName = dataText(own)
+  if (ownName || !parent) return ownName
   const name = dataText(parent.display)
   const subName = dataText(parent.subName)
   return name && subName ? `${name}/${subName}` : null
@@ -109,19 +113,25 @@ export async function loadNames(
   if (addresses.length === 0) return {}
   const identity = peopleApi(network).query.Identity
   const supers = await identity.SuperOf.getValues(addresses.map((a) => [a] as [string]))
-  // The display name of a sub-identity is that of the account it belongs to.
-  const holders = addresses.map((address, i) => supers[i]?.[0] ?? address)
-  const unique = [...new Set(holders)]
+  // Each account's own identity, and that of the account it is a sub-identity of.
+  const parents = supers.flatMap((sub) => (sub ? [sub[0]] : []))
+  const unique = [...new Set([...addresses, ...parents])]
   const registrations = await identity.IdentityOf.getValues(unique.map((a) => [a] as [string]))
   const registered = new Map(unique.map((a, i) => [a, registrations[i]]))
 
   const names: Record<string, AccountIdentity> = {}
   addresses.forEach((address, i) => {
+    const own = registered.get(address)
     const sub = supers[i]
-    const registration = registered.get(sub ? sub[0] : address)
-    const display = registration?.info.display
-    const name = sub ? identityName(undefined, { display, subName: sub[1] }) : identityName(display)
-    if (name) names[address] = { name, standing: standing(registration?.judgements) }
+    const parent = sub && registered.get(sub[0])
+    const name = identityName(
+      own?.info.display,
+      sub && { display: parent?.info.display, subName: sub[1] },
+    )
+    if (!name) return
+    // The standing is that of whichever identity gave the name.
+    const from = dataText(own?.info.display) ? own : parent
+    names[address] = { name, standing: standing(from?.judgements) }
   })
   return names
 }

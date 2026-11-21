@@ -196,8 +196,13 @@ async function checkFellowshipCalls(
   // it.
   const bounded = (submit.args as { proposal?: { type: string; value: unknown } }).proposal
   let voted: Uint8Array | null = null
-  if (bounded?.type === "Inline" && bounded.value instanceof Uint8Array) voted = bounded.value
-  else if (bounded?.type === "Lookup" && calls.fellowship_preimage) {
+  if (bounded?.type === "Inline" && bounded.value instanceof Uint8Array) {
+    // Nothing needs to be noted for an inline proposal, and a preimage would be signed along
+    // with the submission without being part of what was checked.
+    if (calls.fellowship_preimage)
+      throw new Error("The generated Fellowship referendum notes a preimage that it does not use.")
+    voted = bounded.value
+  } else if (bounded?.type === "Lookup" && calls.fellowship_preimage) {
     const note = await decodeCall({ id: "collectives" }, fromHex(calls.fellowship_preimage.encoded))
     const noted = (note.args as { bytes?: unknown }).bytes
     if (isCallTo(note, "Preimage", "note_preimage") && noted instanceof Uint8Array) voted = noted
@@ -229,7 +234,7 @@ async function checkFellowshipCalls(
  * submits on the Whitelisted Caller track a preimage that dispatches exactly `proposal` through
  * the whitelist, and the preimage to be noted is that same preimage.
  */
-async function checkPublicCalls(
+export async function checkPublicCalls(
   calls: Opengov.ReferendumCalls,
   proposal: Opengov.NetworkCall,
   network: Network,

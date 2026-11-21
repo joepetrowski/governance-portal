@@ -113,15 +113,24 @@ export interface Proposal {
   kind: "upgrade" | "whitelist" | "other"
   /** The Fellowship referendum, if one is open. */
   fellowship?: Stage
+  /**
+   * When `call` is that of the public referendum, how many things the Fellowship referendum does
+   * besides whitelisting it. The card must show the Fellowship referendum's own call if this is
+   * not zero, since `call` does not cover it.
+   */
+  fellowshipExtra: number
   /** The public referendum, if one is open. */
   open?: Stage
   /** Present when the proposal dispatches (or whitelists) a call through the whitelist. */
   whitelist?: {
     /** Hash of the whitelisted call. */
     hash: string
-    /** Whether the Fellowship has whitelisted it. */
-    whitelisted: boolean
-    /** The encoded call, when the public referendum carries it and not only its hash. */
+    /** Whether the Fellowship has whitelisted it. Null if that could not be read. */
+    whitelisted: boolean | null
+    /**
+     * The encoded call, when the public referendum carries it, or names it by a hash whose
+     * preimage is on chain.
+     */
     call?: Uint8Array
   }
   /** Runtime upgrades the proposal authorizes. Empty if it is not an upgrade. */
@@ -266,39 +275,86 @@ const SCAN_CHUNK = 64
 /** Slack added to the longest possible life of a referendum: a day of Relay Chain blocks. */
 const SCAN_MARGIN = 14_400
 
-/**
- * The public referenda of a network that are still ongoing, without reading every referendum ever
- * submitted. Indexes are scanned from the newest down. A referendum cannot stay open longer than
- * the undeciding timeout plus the longest decision and confirmation periods, and indexes follow
- * the order of submission, so the scan stops at the first referendum that ended longer ago than
- * that: Everything below it was submitted earlier still, and must have ended too.
- */
-async function ongoingReferenda(network: Network, tracks: TrackInfo[], now: number) {
-  const api = assetHubApi(network)
-  const [count, timeout] = await Promise.all([
-    api.query.Referenda.ReferendumCount.getValue(),
-    api.constants.Referenda.UndecidingTimeout(),
-  ])
-  const longest = Math.max(...tracks.map((t) => t.decision_period + t.confirm_period))
-  const horizon = now - (timeout + longest + SCAN_MARGIN)
+/** A referendum as the scan reads it from `ReferendumInfoFor`: its state, and what that holds. */
+export type ScannedInfo = { type: string; value: unknown } | undefined
 
-  const ongoing: { index: number; info: unknown }[] = []
-  for (let top = count; top > 0; top -= SCAN_CHUNK) {
+/**
+ * The ongoing referenda among indexes `0` to `count - 1`, without reading every referendum ever
+ * submitted. Indexes are scanned from the newest down, and `read` returns the referenda at the
+ * indexes it is given.
+ *
+ * A referendum that is neither queued nor deciding cannot stay open longer than the undeciding
+ * timeout, and indexes follow the order of submission. So the scan may stop at the first
+ * referendum that ended before `horizon`, the current block less that timeout and the longest
+ * decision and confirmation periods: Everything below it was submitted earlier still.
+ *
+ * Two kinds of referendum can be older than that, and are found in other ways. One that waits in
+ * the queue of a full track is exempt from the timeout, so the indexes in `queued` are read
+ * directly. One that waited in a queue and is now deciding is counted by its track, so the scan
+ * also goes on until it has found as many deciding referenda on every track as `deciding` says
+ * there are.
+ */
+export async function scanOngoing(opts: {
+  count: number
+  horizon: number
+  /** How many referenda are deciding on each track, by track ID. */
+  deciding: Map<number, number>
+  /** Indexes of the referenda in the queues of all tracks. */
+  queued: number[]
+  read: (indexes: number[]) => Promise<ScannedInfo[]>
+}): Promise<{ index: number; info: unknown }[]> {
+  const ongoing = new Map<number, unknown>()
+  const found = new Map<number, number>()
+  const allDecidingFound = () =>
+    [...opts.deciding].every(([track, expected]) => (found.get(track) ?? 0) >= expected)
+
+  let pastHorizon = false
+  for (let top = opts.count; top > 0; top -= SCAN_CHUNK) {
     const indexes = Array.from({ length: Math.min(SCAN_CHUNK, top) }, (_, i) => top - 1 - i)
-    const values = await api.query.Referenda.ReferendumInfoFor.getValues(
-      indexes.map((i) => [i] as [number]),
-    )
-    let done = false
+    const values = await opts.read(indexes)
     values.forEach((value, i) => {
       if (!value) return
-      if (value.type === "Ongoing") return ongoing.push({ index: indexes[i], info: value.value })
+      if (value.type === "Ongoing") {
+        ongoing.set(indexes[i], value.value)
+        const { track, deciding } = value.value as { track: number; deciding?: unknown }
+        if (deciding !== undefined) found.set(track, (found.get(track) ?? 0) + 1)
+        return
+      }
       // Every other state records the block at which the referendum ended, alone or first.
       const ended = Array.isArray(value.value) ? value.value[0] : value.value
-      if (typeof ended === "number" && ended < horizon) done = true
+      if (typeof ended === "number" && ended < opts.horizon) pastHorizon = true
     })
-    if (done) break
+    if (pastHorizon && allDecidingFound()) break
   }
-  return ongoing
+
+  const missing = [...new Set(opts.queued)].filter((index) => !ongoing.has(index))
+  if (missing.length > 0) {
+    const values = await opts.read(missing)
+    values.forEach((value, i) => {
+      if (value?.type === "Ongoing") ongoing.set(missing[i], value.value)
+    })
+  }
+  return [...ongoing].sort(([a], [b]) => b - a).map(([index, info]) => ({ index, info }))
+}
+
+/** The public referenda of a network that are still ongoing. See `scanOngoing`. */
+async function ongoingReferenda(network: Network, tracks: TrackInfo[], now: number) {
+  const api = assetHubApi(network)
+  const [count, timeout, decidingCounts, queues] = await Promise.all([
+    api.query.Referenda.ReferendumCount.getValue(),
+    api.constants.Referenda.UndecidingTimeout(),
+    api.query.Referenda.DecidingCount.getEntries(),
+    api.query.Referenda.TrackQueue.getEntries(),
+  ])
+  const longest = Math.max(...tracks.map((t) => t.decision_period + t.confirm_period))
+  return scanOngoing({
+    count,
+    horizon: now - (timeout + longest + SCAN_MARGIN),
+    deciding: new Map(decidingCounts.map(({ keyArgs: [track], value }) => [track, value])),
+    queued: queues.flatMap(({ value }) => value.map(([index]) => index)),
+    read: (indexes) =>
+      api.query.Referenda.ReferendumInfoFor.getValues(indexes.map((i) => [i] as [number])),
+  })
 }
 
 async function loadOpenStages(network: Network): Promise<Stage[]> {
@@ -440,19 +496,42 @@ async function whitelistedPreimage(
   return { bytes, call: await decodeCall({ id: NETWORKS[network].assetHub }, bytes) }
 }
 
-/** The hash a Fellowship referendum whitelists, and where. */
-function whitelistRequest(
-  stage: Stage,
-): { hash: string; on: CallNode["chain"]; network: Network | null } | null {
-  if (!stage.call) return null
-  for (const node of walk(stage.call))
-    if (isCallTo(node, "Whitelist", "whitelist_call")) {
+/** A hash that a Fellowship referendum whitelists, and where. */
+interface WhitelistRequest {
+  /** The hash of the call. */
+  hash: string
+  /** The chain that the whitelist is on. */
+  on: CallNode["chain"]
+  /** The network whose Asset Hub that is, where it can pair with a public referendum. */
+  network: Network | null
+}
+
+/** Every hash a Fellowship referendum whitelists, in the order of its call tree. */
+function whitelistRequests(stage: Stage): WhitelistRequest[] {
+  if (!stage.call) return []
+  return [...walk(stage.call)]
+    .filter((node) => isCallTo(node, "Whitelist", "whitelist_call"))
+    .map((node) => {
       const on = node.chain
-      // Only a whitelist on a network's Asset Hub can be paired with a public referendum.
       const network = NETWORK_IDS.find((n) => "id" in on && on.id === NETWORKS[n].assetHub)
       return { hash: hexOf(argOf(node, "call_hash")), on, network: network ?? null }
-    }
-  return null
+    })
+}
+
+/**
+ * How many things a Fellowship referendum does besides whitelisting the given hash on the
+ * network's Asset Hub. A call that could not be decoded counts, since what it does is unknown.
+ * Zero for a referendum that only whitelists the call, which is all that a card for the call shows
+ * of it otherwise.
+ */
+export function effectsBesidesWhitelist(call: CallNode | null, network: Network, hash: string) {
+  if (!call) return 0
+  const isTheWhitelist = (n: CallNode) =>
+    isCallTo(n, "Whitelist", "whitelist_call") &&
+    "id" in n.chain &&
+    n.chain.id === NETWORKS[network].assetHub &&
+    hexOf(argOf(n, "call_hash")) === hash
+  return effects(call).filter((n) => !isTheWhitelist(n)).length
 }
 
 const isUpgrade = (n: CallNode) =>
@@ -495,6 +574,8 @@ export function makeProposal(parts: {
   fellowship?: Stage
   open?: Stage
   whitelist?: Proposal["whitelist"]
+  /** See `Proposal.fellowshipExtra`. Zero if left out. */
+  fellowshipExtra?: number
   call: CallNode | null
   fallbackTitle?: string
 }): Proposal {
@@ -535,6 +616,7 @@ export function makeProposal(parts: {
     title,
     kind: upgrades.length > 0 ? "upgrade" : parts.whitelist ? "whitelist" : "other",
     fellowship: parts.fellowship,
+    fellowshipExtra: parts.fellowshipExtra ?? 0,
     open: parts.open,
     whitelist: parts.whitelist,
     upgrades,
@@ -554,6 +636,21 @@ function foreignNetwork(call: CallNode | null): Network | null {
     if ("id" in node.chain && CHAINS[node.chain.id].network !== "polkadot")
       return CHAINS[node.chain.id].network
   return null
+}
+
+/**
+ * Whether a call hash is on the whitelist of a network's Asset Hub. Null if a network other than
+ * Polkadot does not answer, so that a failed read is not taken for "not whitelisted". Fails if
+ * Polkadot cannot be read.
+ */
+async function isWhitelisted(network: Network, hash: string): Promise<boolean | null> {
+  const read = orReject(
+    assetHubApi(network).query.Whitelist.WhitelistedCall.getValue(hash),
+    NETWORK_DEADLINE_MS,
+    "Timed out",
+    // The entry holds no data: It reads as `null` when present and as `undefined` when absent.
+  ).then((entry) => entry !== undefined)
+  return network === "polkadot" ? read : read.catch(() => null)
 }
 
 /**
@@ -591,10 +688,9 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
   // Fellowship referenda that whitelist a call, by network and hash.
   const requests = new Map<string, Stage>()
   const unpaired = new Set(fellowship)
-  for (const stage of fellowship) {
-    const request = whitelistRequest(stage)
-    if (request?.network) requests.set(`${request.network}:${request.hash}`, stage)
-  }
+  for (const stage of fellowship)
+    for (const request of whitelistRequests(stage))
+      if (request.network) requests.set(`${request.network}:${request.hash}`, stage)
 
   const proposals: Proposal[] = []
   for (const stage of openByNetwork.flat()) {
@@ -606,15 +702,7 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
     }
     const partner = requests.get(`${network}:${dispatch.hash}`)
     if (partner) unpaired.delete(partner)
-    const whitelisted =
-      (await orReject(
-        assetHubApi(network).query.Whitelist.WhitelistedCall.getValue(dispatch.hash),
-        NETWORK_DEADLINE_MS,
-        "Timed out",
-      ).catch((e) => {
-        if (network === "polkadot") throw e
-        return undefined
-      })) !== undefined
+    const whitelisted = await isWhitelisted(network, dispatch.hash)
     // A referendum that names the call by hash alone shows the call if its preimage is on chain.
     const found =
       dispatch.inner === null && dispatch.len !== undefined
@@ -625,6 +713,9 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
         network,
         open: stage,
         fellowship: partner,
+        fellowshipExtra: partner
+          ? effectsBesidesWhitelist(partner.call, network, dispatch.hash)
+          : undefined,
         whitelist: { hash: dispatch.hash, whitelisted, call: dispatch.bytes ?? found?.bytes },
         call: dispatch.inner ?? found?.call ?? stage.call,
       }),
@@ -632,15 +723,14 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
   }
 
   for (const stage of unpaired) {
-    const request = whitelistRequest(stage)
+    // The card shows the whole call of the referendum, so naming its first whitelist is enough.
+    const request = whitelistRequests(stage).at(0)
     // The call may be whitelisted already while this referendum is still open, if an earlier one
     // whitelisted the same hash.
     const whitelisted =
       request?.network && !unreachable.includes(request.network)
-        ? (await assetHubApi(request.network)
-            .query.Whitelist.WhitelistedCall.getValue(request.hash)
-            .catch(() => undefined)) !== undefined
-        : false
+        ? await isWhitelisted(request.network, request.hash).catch(() => null)
+        : null
     proposals.push(
       makeProposal({
         network: request?.network ?? foreignNetwork(stage.call) ?? "polkadot",
