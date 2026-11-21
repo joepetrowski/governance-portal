@@ -33,7 +33,10 @@
       "codeHash": "0x104576d94498e0d6af9d34ef8529a69126678736b088d75c8095c08b44f8f6d0"
     },
     "bulletin": {
-      "metadata": ".papi/metadata/bulletin.scale"
+      "wsUrl": "wss://bulletin-rpc.polkadot.io",
+      "metadata": ".papi/metadata/bulletin.scale",
+      "genesis": "0x2761c95259d59e55ae3daf756c1413b46e45a5a2987299f8ef8e5d8e4776cbc4",
+      "codeHash": "0xb85e8b5791f21b91994d283636ba730379cc70bdb695a223a6e6ba2dd704eec0"
     },
     "relay": {
       "chain": "polkadot",
