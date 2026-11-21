@@ -140,14 +140,28 @@ export default function App() {
         </div>
       </NamesContext.Provider>
 
-      {snapshot && (
-        <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">
-          Read from chain state at {formatTime(snapshot.loadedAt)}.
-          {cleanups.length > 0 &&
-            !cleanups.some(needsCleanup) &&
-            " No finished votes or expired locks to clear."}
-        </footer>
-      )}
+      <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">
+        {snapshot && (
+          <p>
+            Read from chain state at {formatTime(snapshot.loadedAt)}.
+            {cleanups.length > 0 &&
+              !cleanups.some(needsCleanup) &&
+              " No finished votes or expired locks to clear."}
+          </p>
+        )}
+        <p className="mt-1">
+          The portal is open source.{" "}
+          <a
+            className="font-medium underline"
+            href="https://github.com/joepetrowski/governance-portal"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Contribute or report a problem on GitHub
+          </a>
+          .
+        </p>
+      </footer>
     </div>
   )
 }
