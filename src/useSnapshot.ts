@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { loadSnapshot, type Snapshot } from "./gov/load"
+import { errorMessage } from "./util"
 
 const REFRESH_MS = 60_000
 
@@ -37,7 +38,7 @@ export function useSnapshot() {
         setSnapshot(next)
         setError(null)
       } catch (e) {
-        if (!canceled) setError(e instanceof Error ? e.message : String(e))
+        if (!canceled) setError(errorMessage(e))
       }
       if (!canceled) timer = setTimeout(tick, REFRESH_MS)
     }

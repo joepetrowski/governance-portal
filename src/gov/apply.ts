@@ -3,8 +3,17 @@
 // `System.apply_authorized_upgrade`, which anyone may do: The chain accepts the call without a
 // signature and without a fee, as long as the code matches the authorized hash.
 
-import { toHex } from "polkadot-api/utils"
-import { type ChainId, CHAINS, chainsOf, getClient, type Network, relayOf } from "../chains"
+import {
+  type ChainId,
+  CHAINS,
+  chainsOf,
+  getClient,
+  type Network,
+  relayApi,
+  relayOf,
+  systemApi,
+} from "../chains"
+import { orNothing } from "../util"
 import { blake2Hex } from "./decode"
 import { type FetchAsset, fetchAssetViaProxy } from "./release"
 import type { ReleaseHashes } from "./versions"
@@ -28,46 +37,29 @@ export interface ChainUpgrade {
   now: number
 }
 
-const timeout = <T>(promise: Promise<T>): Promise<T | undefined> =>
-  Promise.race([
-    promise.catch(() => undefined),
-    new Promise<undefined>((r) => setTimeout(() => r(undefined), READ_TIMEOUT_MS)),
-  ])
-
-const asHex = (value: unknown): string | null =>
-  typeof value === "string"
-    ? value
-    : value instanceof Uint8Array
-      ? toHex(value)
-      : typeof (value as { asHex?: unknown } | null)?.asHex === "function"
-        ? (value as { asHex: () => string }).asHex()
-        : null
+const timeout = <T>(promise: Promise<T>) => orNothing(promise, READ_TIMEOUT_MS)
 
 /**
  * The upgrades of a network that are approved but not yet in effect. A chain that cannot be read
  * is left out.
  */
 export async function loadChainUpgrades(network: Network): Promise<ChainUpgrade[]> {
-  const relay = getClient(relayOf(network))
-  const paras = relay.getUnsafeApi().query.Paras
-  const now = (await timeout(relay.getFinalizedBlock()))?.number
+  const paras = relayApi(network).query.Paras
+  const now = (await timeout(getClient(relayOf(network)).getFinalizedBlock()))?.number
   if (now === undefined) return []
 
   const perChain = chainsOf(network).map(async (chain): Promise<ChainUpgrade[]> => {
     const { paraId } = CHAINS[chain]
-    const system = getClient(chain).getUnsafeApi().query.System
     const [authorized, futureHash, futureAt] = await Promise.all([
-      timeout(system.AuthorizedUpgrade.getValue() as Promise<{ code_hash: unknown } | undefined>),
+      timeout(systemApi(chain).query.System.AuthorizedUpgrade.getValue()),
       paraId === null ? undefined : timeout(paras.FutureCodeHash.getValue(paraId)),
-      paraId === null
-        ? undefined
-        : timeout(paras.FutureCodeUpgrades.getValue(paraId) as Promise<number | undefined>),
+      paraId === null ? undefined : timeout(paras.FutureCodeUpgrades.getValue(paraId)),
     ])
     const found: ChainUpgrade[] = []
-    const authorizedHash = asHex(authorized?.code_hash)
+    const authorizedHash = authorized?.code_hash
     if (authorizedHash)
       found.push({ chain, codeHash: authorizedHash, state: "authorized", enactsAt: null, now })
-    const scheduledHash = asHex(futureHash)
+    const scheduledHash = futureHash
     if (scheduledHash)
       found.push({
         chain,
@@ -104,7 +96,6 @@ export async function applyUpgrade(
   const code = await fetchAsset(tag, runtimeFileName(upgrade.chain, tag))
   if (blake2Hex(code) !== upgrade.codeHash)
     throw new Error("The downloaded runtime does not have the authorized hash.")
-  const client = getClient(upgrade.chain)
-  const tx = client.getUnsafeApi().tx.System.apply_authorized_upgrade({ code })
-  return client.submitAndWatch(await tx.getBareTx())
+  const tx = systemApi(upgrade.chain).tx.System.apply_authorized_upgrade({ code })
+  return getClient(upgrade.chain).submitAndWatch(await tx.getBareTx())
 }

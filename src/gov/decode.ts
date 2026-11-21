@@ -6,6 +6,7 @@
 // instruction becomes a node, not only `Transact`, and anything that cannot be followed is
 // flagged as not decoded instead of being dropped.
 
+import { errorMessage } from "../util"
 import { Blake2256 } from "@polkadot-api/substrate-bindings"
 import { toHex } from "polkadot-api/utils"
 import {
@@ -54,6 +55,10 @@ export const chainLabel = (ref: ChainRef) =>
     : ref.external
 
 /** BLAKE2b-256 hash of the bytes, as hex with a `0x` prefix. */
+/** A value as hex if it is bytes, and as a string otherwise. Hashes decode to either. */
+export const hexOf = (value: unknown): string =>
+  value instanceof Uint8Array ? toHex(value) : String(value)
+
 export const blake2Hex = (bytes: Uint8Array) => toHex(Blake2256(bytes))
 
 type Tagged = { type: string; value?: unknown }
@@ -87,7 +92,7 @@ export async function decodeCall(
     node.bytes = bytes
     return node
   } catch (e) {
-    return failed(chain, bytes, e instanceof Error ? e.message : String(e))
+    return failed(chain, bytes, errorMessage(e))
   }
 }
 

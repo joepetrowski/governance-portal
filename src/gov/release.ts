@@ -15,12 +15,13 @@ import {
   CHAINS,
   type ChainId,
   collectivesApi,
-  getClient,
   type Network,
   NETWORKS,
+  systemApi,
 } from "../chains"
 import { loadReleaseHashes } from "./versions"
-import { blake2Hex, type CallNode, decodeCall, effects, isCallTo, walk } from "./decode"
+import { blake2Hex, type CallNode, decodeCall, effects, hexOf, isCallTo, walk } from "./decode"
+import { orNothing } from "../util"
 
 /**
  * The `opengov` WebAssembly module, once initialized. Passed in so that the browser and Node can
@@ -100,17 +101,9 @@ export interface ChainPlan {
   currentVersion: number | null
 }
 
-const timeout = <T>(promise: Promise<T>, ms: number): Promise<T | null> =>
-  Promise.race([promise.catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), ms))])
-
 async function liveSpecVersion(chain: ChainId): Promise<number | null> {
   try {
-    const version = await timeout(
-      getClient(chain).getUnsafeApi().constants.System.Version() as Promise<{
-        spec_version: number
-      }>,
-      VERSION_TIMEOUT_MS,
-    )
+    const version = await orNothing(systemApi(chain).constants.System.Version(), VERSION_TIMEOUT_MS)
     return version?.spec_version ?? null
   } catch {
     return null
@@ -182,7 +175,6 @@ export interface BuiltUpgrade {
   submissionDeposit: bigint
 }
 
-const hexOf = (value: unknown) => (value instanceof Uint8Array ? toHex(value) : String(value))
 const hexArg = (node: CallNode, key: string) => hexOf((node.args as Record<string, unknown>)[key])
 
 /**

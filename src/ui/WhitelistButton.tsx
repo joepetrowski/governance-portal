@@ -6,6 +6,7 @@ import { useWallet } from "../wallet"
 import { loadOpengov } from "./opengov"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
+import { errorMessage } from "../util"
 
 /**
  * Opens the Fellowship referendum that whitelists the call of a public referendum which has none.
@@ -41,7 +42,7 @@ export function WhitelistButton(props: {
       const built = await fellowshipCallsFor(await loadOpengov(), proposal.network, call)
       submit(await fellowshipSubmitTx(built), account)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
     }
     setBuilding(false)
   }

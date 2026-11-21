@@ -5,6 +5,7 @@ import type { ReleaseHashes } from "../gov/versions"
 import { formatDateTime, shortHex } from "./format"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
+import { errorMessage } from "../util"
 
 /** One chain's upgrade, with the button that applies it when it is waiting for that. */
 function UpgradeRow(props: {
@@ -28,7 +29,7 @@ function UpgradeRow(props: {
     try {
       follow(await applyUpgrade(upgrade, props.releaseHashes ?? {}))
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
     }
     setPreparing(false)
   }

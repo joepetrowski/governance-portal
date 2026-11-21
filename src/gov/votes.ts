@@ -34,7 +34,8 @@ export const stageKey = (stage: Pick<Stage, "network" | "body" | "index">) =>
 
 /** Conviction multipliers by index. Index 0 is 0.1x with no lock. */
 export const CONVICTIONS = ["0.1x", "1x", "2x", "3x", "4x", "5x", "6x"]
-const AYE_BIT = 0x80
+/** The bit of a standard vote that says aye. The other bits are the conviction index. */
+export const AYE_BIT = 0x80
 
 /** Summarize a conviction vote on a network as a direction and a line of text. */
 export function describeOpenVote(

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import type { Account } from "../wallet"
+import { errorMessage } from "../util"
 
 /** Where a transaction is on its way to finality. */
 export type TxState =
@@ -67,8 +68,7 @@ export function useSubmit(onFinalized: () => void) {
         setState({ step: event.type === "finalized" ? "finalized" : "included" })
         if (event.type === "finalized") onFinalized()
       },
-      error: (e) =>
-        setState({ step: "failed", reason: e instanceof Error ? e.message : String(e) }),
+      error: (e) => setState({ step: "failed", reason: errorMessage(e) }),
     })
   }
   const submit = (tx: Submittable, account: Account) => {

@@ -19,6 +19,7 @@ import {
 } from "@polkadot-api/descriptors"
 import type { PolkadotClient } from "polkadot-api"
 import { createWsClient } from "polkadot-api/ws"
+import { orReject } from "./util"
 
 /** A network: a relay chain with its system parachains, governed as one. */
 export type Network = "polkadot" | "kusama"
@@ -286,20 +287,35 @@ export const assetHubApi = (network: Network = "polkadot") =>
     : (getClient("kusamaAssetHub").getTypedApi(kusamaAssetHub) as unknown as ReturnType<
         typeof polkadotAssetHubApi
       >)
+
+const polkadotRelayApi = () => getClient("relay").getTypedApi(relay)
+
+/**
+ * Typed API of a network's Relay Chain. Kusama is given the type of Polkadot, as in `assetHubApi`:
+ * What is read here, the parachain upgrade schedule, is the same on both.
+ */
+export const relayApi = (network: Network) =>
+  network === "polkadot"
+    ? polkadotRelayApi()
+    : (getClient("kusama").getTypedApi(kusama) as unknown as ReturnType<typeof polkadotRelayApi>)
+
+/**
+ * Typed API of any chain, for the `System` pallet that all of them have. Every chain is given the
+ * type of the Polkadot Relay Chain, and each call is still checked against the chain's own
+ * metadata. Pallets other than `System` must not be used through this.
+ */
+export const systemApi = (chain: ChainId) =>
+  getClient(chain).getTypedApi(DESCRIPTORS[chain]) as unknown as Pick<
+    ReturnType<typeof polkadotRelayApi>,
+    "query" | "tx" | "constants"
+  >
+
 /** Typed API of Collectives, which hosts the Fellowship and its referenda. */
 export const collectivesApi = () => getClient("collectives").getTypedApi(collectives)
 
 /** Give up on a chain that does not answer, so that it cannot stall everything else. */
 const withTimeout = <T>(promise: Promise<T>, chainName: string): Promise<T> =>
-  Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`Timed out connecting to ${chainName}`)),
-        DECODE_TIMEOUT_MS,
-      ),
-    ),
-  ])
+  orReject(promise, DECODE_TIMEOUT_MS, `Timed out connecting to ${chainName}`)
 
 /** Decode SCALE-encoded call data against a chain's live runtime. */
 export async function decodeCallData(

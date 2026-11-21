@@ -7,6 +7,7 @@ import {
 } from "polkadot-api/pjs-signer"
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { type Account, WalletContext } from "./wallet"
+import { errorMessage } from "./util"
 
 const DAPP_NAME = "Polkadot Governance"
 const STORAGE_KEY = "wallet"
@@ -51,7 +52,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setError(null)
       remember({ ...remembered(), extension: name })
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
     }
   }, [])
 

@@ -2,7 +2,7 @@
 // that needs both the Fellowship (to whitelist) and a public referendum (to dispatch) is a single
 // item with two stages, joined by the hash of the whitelisted call.
 
-import { toHex } from "polkadot-api/utils"
+import { orReject } from "../util"
 import {
   assetHubApi,
   COLLECTIVES_BLOCK_MS,
@@ -18,6 +18,7 @@ import { formatBalance, formatList } from "../ui/format"
 import { type Curve, delay, threshold } from "./curves"
 import {
   blake2Hex,
+  hexOf,
   type CallNode,
   chainLabel,
   decodeCall,
@@ -182,7 +183,8 @@ interface Ongoing {
   in_queue: boolean
 }
 
-const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
+/** A track name as stored on chain, such as "whitelisted_caller", in readable form. */
+export const trackName = (raw: string) => raw.replace(/\0+$/, "").replaceAll("_", " ")
 
 /**
  * Minimum rank that can vote on a Fellowship track, as `MinRankOfClass` in the Collectives runtime
@@ -395,7 +397,6 @@ async function proposalBytes(
   return null
 }
 
-const hex = (v: unknown) => (v instanceof Uint8Array ? toHex(v) : String(v))
 const argOf = (node: CallNode, key: string) => (node.args as Record<string, unknown>)[key]
 
 /** The hash an open referendum dispatches through the whitelist, with the call itself. */
@@ -410,7 +411,7 @@ function whitelistDispatch(
     return { hash: blake2Hex(bytes), inner: root.children[0] ?? null, bytes }
   }
   if (isCallTo(root, "Whitelist", "dispatch_whitelisted_call"))
-    return { hash: hex(argOf(root, "call_hash")), inner: null }
+    return { hash: hexOf(argOf(root, "call_hash")), inner: null }
   return null
 }
 
@@ -424,7 +425,7 @@ function whitelistRequest(
       const on = node.chain
       // Only a whitelist on a network's Asset Hub can be paired with a public referendum.
       const network = NETWORK_IDS.find((n) => "id" in on && on.id === NETWORKS[n].assetHub)
-      return { hash: hex(argOf(node, "call_hash")), on, network: network ?? null }
+      return { hash: hexOf(argOf(node, "call_hash")), on, network: network ?? null }
     }
   return null
 }
@@ -437,7 +438,7 @@ function upgradesIn(call: CallNode | null): Upgrade[] {
   if (!call) return []
   return [...walk(call)].filter(isUpgrade).map((n) => ({
     chain: chainLabel(n.chain),
-    codeHash: hex(argOf(n, "code_hash")),
+    codeHash: hexOf(argOf(n, "code_hash")),
     unchecked: n.name === "authorize_upgrade_without_checks",
   }))
 }
@@ -521,12 +522,6 @@ export function makeProposal(parts: {
 /** How long a network other than Polkadot may take to answer before it counts as unreachable. */
 const NETWORK_DEADLINE_MS = 30_000
 
-const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([
-    promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timed out")), ms)),
-  ])
-
 /** The network of the first chain outside Polkadot that the call reaches, if any. */
 function foreignNetwork(call: CallNode | null): Network | null {
   if (!call) return null
@@ -555,7 +550,7 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
       // so that it cannot hold up the rest.
       (network === "polkadot"
         ? loadOpenStages(network)
-        : withDeadline(loadOpenStages(network), NETWORK_DEADLINE_MS)
+        : orReject(loadOpenStages(network), NETWORK_DEADLINE_MS, "Timed out")
       ).catch((e) => {
         if (network === "polkadot") throw e
         unreachable.push(network)
@@ -587,9 +582,10 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
     const partner = requests.get(`${network}:${dispatch.hash}`)
     if (partner) unpaired.delete(partner)
     const whitelisted =
-      (await withDeadline(
+      (await orReject(
         assetHubApi(network).query.Whitelist.WhitelistedCall.getValue(dispatch.hash),
         NETWORK_DEADLINE_MS,
+        "Timed out",
       ).catch((e) => {
         if (network === "polkadot") throw e
         return undefined

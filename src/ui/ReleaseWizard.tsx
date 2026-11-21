@@ -23,10 +23,10 @@ import { formatBalance, formatList, shortHex } from "./format"
 import { loadOpengov } from "./opengov"
 import { choice, type Submittable, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
+import { errorMessage } from "../util"
 
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 type Loaded = { release: Release; plans: ChainPlan[] }
 
@@ -76,7 +76,7 @@ function SubmitStep(props: {
             props
               .makeTx()
               .then((tx) => submit(tx, account))
-              .catch((e) => setError(message(e)))
+              .catch((e) => setError(errorMessage(e)))
               .finally(() => setMaking(false))
           }}
         >
@@ -356,7 +356,7 @@ function NetworkUpgrade(props: {
       if (!mounted.current) return
       setBuilt(result)
     } catch (e) {
-      setError(message(e))
+      setError(errorMessage(e))
     }
     setBusy(null)
   }
@@ -439,7 +439,7 @@ export function ReleaseWizard(props: {
         setLoaded(next)
         setInput(next.release.tag)
       })
-      .catch((e) => setError(message(e)))
+      .catch((e) => setError(errorMessage(e)))
       .finally(() => setBusy(false))
 
   const load = (tag: string) => {

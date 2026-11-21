@@ -6,14 +6,14 @@
 
 import { ConvictionVotingVoteAccountVote, MultiAddress } from "@polkadot-api/descriptors"
 import { assetHubApi, type Network } from "../chains"
-import { describeOpenVote } from "./votes"
+import { trackName } from "./load"
+import { AYE_BIT, describeOpenVote } from "./votes"
 
 /** Vote removals per transaction, which keeps the batch well inside a block. */
 export const MAX_REMOVALS = 25
 
 /** Locking periods by conviction index, as `Conviction::lock_periods`. */
 const LOCK_PERIODS = [0, 1, 2, 4, 8, 16, 32]
-const AYE_BIT = 0x80
 
 /** A vote that an account still has on record for a public referendum that has ended. */
 export interface StaleVote {
@@ -84,9 +84,7 @@ export async function loadCleanup(address: string, network: Network): Promise<Cl
     api.constants.ConvictionVoting.VoteLockingPeriod(),
     api.constants.Referenda.Tracks(),
   ])
-  const trackName = new Map(
-    trackList.map(([id, info]) => [id, info.name.replace(/\0+$/, "").replaceAll("_", " ")]),
-  )
+  const trackNames = new Map(trackList.map(([id, info]) => [id, trackName(info.name)]))
 
   const indices = [
     ...new Set(
@@ -136,7 +134,7 @@ export async function loadCleanup(address: string, network: Network): Promise<Cl
         stale.push({
           index,
           trackId,
-          track: trackName.get(trackId) ?? `track ${trackId}`,
+          track: trackNames.get(trackId) ?? `track ${trackId}`,
           detail: described.type === "voted" ? described.detail : "",
           outcome:
             info?.type === "Approved" || info?.type === "Rejected" || info?.type === "Killed"
