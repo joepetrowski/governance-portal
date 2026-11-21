@@ -5,7 +5,7 @@ import {
   getInjectedExtensions,
   type InjectedExtension,
 } from "polkadot-api/pjs-signer"
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { type Account, WalletContext } from "./wallet"
 
 const DAPP_NAME = "Polkadot Governance"
@@ -40,7 +40,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Set by any attempt to connect, so that the automatic one never follows a manual one.
+  const attempted = useRef(false)
+
   const connect = useCallback(async (name: string) => {
+    attempted.current = true
     try {
       const next = await connectInjectedExtension(name, DAPP_NAME)
       setExtension(next)
@@ -53,15 +57,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // Extensions inject themselves shortly after the page loads, so look more than once.
   useEffect(() => {
-    let reconnected = false
     const look = () => {
       const found = talismanFirst(getInjectedExtensions())
       setAvailable(found)
       const previous = remembered().extension
-      if (!reconnected && previous && found.includes(previous)) {
-        reconnected = true
-        void connect(previous)
-      }
+      if (!attempted.current && previous && found.includes(previous)) void connect(previous)
     }
     look()
     const timers = [300, 1500].map((ms) => setTimeout(look, ms))
