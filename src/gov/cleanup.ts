@@ -71,6 +71,27 @@ const max = (values: bigint[]) => values.reduce((a, b) => (b > a ? b : a), 0n)
 /** Whether the account has stale votes to remove or a voting lock that can be lowered. */
 export const needsCleanup = (cleanup: Cleanup) => cleanup.stale.length + cleanup.tracks.length > 0
 
+type Api = ReturnType<typeof assetHubApi>
+type Unwrap<F extends (...args: never[]) => unknown> = Awaited<ReturnType<F>>
+
+/** What `cleanupFrom` works from: an account's votes and locks as Asset Hub stores them. */
+export interface VotingState {
+  /** `ConvictionVoting.VotingFor` of the account, one entry per track. */
+  entries: Unwrap<Api["query"]["ConvictionVoting"]["VotingFor"]["getEntries"]>
+  /** `ConvictionVoting.ClassLocksFor` of the account: the lock held per track. */
+  classLocks: Unwrap<Api["query"]["ConvictionVoting"]["ClassLocksFor"]["getValue"]>
+  /** `Referenda.ReferendumInfoFor` of every referendum voted on. Missing if no longer in state. */
+  infos: Map<number, Unwrap<Api["query"]["Referenda"]["ReferendumInfoFor"]["getValue"]>>
+  /** `ConvictionVoting.VoteLockingPeriod`, in Relay Chain blocks. */
+  period: number
+  /** Readable track names by track ID. */
+  trackNames: Map<number, string>
+  /** Relay Chain block at which the state was read. */
+  now: number
+  /** Wall-clock time at which the state was read, in milliseconds. */
+  loadedAt: number
+}
+
 /**
  * Read an account's stale votes and voting locks from Asset Hub, and work out what clearing them
  * would unlock.
@@ -84,20 +105,37 @@ export async function loadCleanup(address: string, network: Network): Promise<Cl
     api.constants.ConvictionVoting.VoteLockingPeriod(),
     api.constants.Referenda.Tracks(),
   ])
-  const trackNames = new Map(trackList.map(([id, info]) => [id, trackName(info.name)]))
-
-  const indices = [
-    ...new Set(
-      entries.flatMap(({ value }) =>
-        value.type === "Casting" ? value.value.votes.map(([i]) => i) : [],
-      ),
-    ),
-  ]
+  const indices = votedOn(entries)
   const infos = await api.query.Referenda.ReferendumInfoFor.getValues(
     indices.map((i) => [i] as [number]),
   )
-  const infoOf = new Map(indices.map((index, i) => [index, infos[i]]))
+  return cleanupFrom(address, network, {
+    entries,
+    classLocks,
+    infos: new Map(indices.map((index, i) => [index, infos[i]])),
+    period,
+    trackNames: new Map(trackList.map(([id, info]) => [id, trackName(info.name)])),
+    now,
+    loadedAt: Date.now(),
+  })
+}
 
+const votedOn = (entries: VotingState["entries"]) => [
+  ...new Set(
+    entries.flatMap(({ value }) =>
+      value.type === "Casting" ? value.value.votes.map(([i]) => i) : [],
+    ),
+  ),
+]
+
+/**
+ * Work out what an account can clear from its votes and locks. This follows
+ * `pallet-conviction-voting`: Removing a vote on a finished referendum leaves a lock only if the
+ * vote had conviction and was on the winning side, and a track's lock can be lowered to the
+ * largest of the votes kept, a delegation, and a prior lock that has not expired.
+ */
+export function cleanupFrom(address: string, network: Network, state: VotingState): Cleanup {
+  const { entries, classLocks, infos: infoOf, period, trackNames, now } = state
   const currentLock = new Map(classLocks)
   const stale: StaleVote[] = []
   const needed = new Map<number, bigint>()
@@ -170,7 +208,7 @@ export async function loadCleanup(address: string, network: Network): Promise<Cl
     lockedAfter: max([...needed.values()]),
     nextUnlock: expiries.length > 0 ? Math.min(...expiries) : null,
     now,
-    loadedAt: Date.now(),
+    loadedAt: state.loadedAt,
   }
 }
 
