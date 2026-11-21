@@ -2,7 +2,7 @@
 // that needs both the Fellowship (to whitelist) and a public referendum (to dispatch) is a single
 // item with two stages, joined by the hash of the whitelisted call.
 
-import { orReject } from "../util"
+import { orNothing, orReject } from "../util"
 import {
   assetHubApi,
   COLLECTIVES_BLOCK_MS,
@@ -399,10 +399,13 @@ async function proposalBytes(
 
 const argOf = (node: CallNode, key: string) => (node.args as Record<string, unknown>)[key]
 
-/** The hash an open referendum dispatches through the whitelist, with the call itself. */
+/**
+ * The hash an open referendum dispatches through the whitelist, with the call itself. A referendum
+ * that names the call by hash alone gives `len`, with which the call can be looked up.
+ */
 function whitelistDispatch(
   stage: Stage,
-): { hash: string; inner: CallNode | null; bytes?: Uint8Array } | null {
+): { hash: string; inner: CallNode | null; bytes?: Uint8Array; len?: number } | null {
   const root = stage.call
   if (!root) return null
   if (isCallTo(root, "Whitelist", "dispatch_whitelisted_call_with_preimage") && root.bytes) {
@@ -411,8 +414,30 @@ function whitelistDispatch(
     return { hash: blake2Hex(bytes), inner: root.children[0] ?? null, bytes }
   }
   if (isCallTo(root, "Whitelist", "dispatch_whitelisted_call"))
-    return { hash: hexOf(argOf(root, "call_hash")), inner: null }
+    return {
+      hash: hexOf(argOf(root, "call_hash")),
+      inner: null,
+      len: Number(argOf(root, "call_encoded_len")),
+    }
   return null
+}
+
+/**
+ * The call behind a hash that a referendum dispatches through the whitelist, read from the
+ * preimages on the network's Asset Hub. Null if the preimage is not there, cannot be read in time,
+ * or does not have the hash.
+ */
+async function whitelistedPreimage(
+  network: Network,
+  hash: string,
+  len: number,
+): Promise<{ bytes: Uint8Array; call: CallNode } | null> {
+  const bytes = await orNothing(
+    assetHubApi(network).query.Preimage.PreimageFor.getValue([hash, len]),
+    NETWORK_DEADLINE_MS,
+  )
+  if (!bytes || blake2Hex(bytes) !== hash) return null
+  return { bytes, call: await decodeCall({ id: NETWORKS[network].assetHub }, bytes) }
 }
 
 /** The hash a Fellowship referendum whitelists, and where. */
@@ -590,13 +615,18 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
         if (network === "polkadot") throw e
         return undefined
       })) !== undefined
+    // A referendum that names the call by hash alone shows the call if its preimage is on chain.
+    const found =
+      dispatch.inner === null && dispatch.len !== undefined
+        ? await whitelistedPreimage(network, dispatch.hash, dispatch.len)
+        : null
     proposals.push(
       makeProposal({
         network,
         open: stage,
         fellowship: partner,
-        whitelist: { hash: dispatch.hash, whitelisted, call: dispatch.bytes },
-        call: dispatch.inner ?? stage.call,
+        whitelist: { hash: dispatch.hash, whitelisted, call: dispatch.bytes ?? found?.bytes },
+        call: dispatch.inner ?? found?.call ?? stage.call,
       }),
     )
   }
