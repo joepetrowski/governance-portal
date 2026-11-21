@@ -1,6 +1,7 @@
 // Signing and following a transaction, shared by every action on the page.
 
 import { useState } from "react"
+import { holdClients } from "../chains"
 import type { Account } from "../wallet"
 import { errorMessage } from "../util"
 
@@ -54,10 +55,14 @@ export function useSubmit(onFinalized: () => void) {
 
   const follow = (events: TxEvents) => {
     setState((current) => (current.step === "signing" ? current : { step: "broadcast" }))
+    // The events end by themselves, at finality or with an error. Until then the connections
+    // stay open, also in a tab that is in the background.
+    const release = holdClients()
     events.subscribe({
       next: (event) => {
         if (event.type === "broadcasted") setState({ step: "broadcast" })
         if (event.type !== "inBestBlock" && event.type !== "finalized") return
+        if (event.type === "finalized") release()
         if (event.ok === false) {
           setState({
             step: "failed",
@@ -68,7 +73,10 @@ export function useSubmit(onFinalized: () => void) {
         setState({ step: event.type === "finalized" ? "finalized" : "included" })
         if (event.type === "finalized") onFinalized()
       },
-      error: (e) => setState({ step: "failed", reason: errorMessage(e) }),
+      error: (e) => {
+        release()
+        setState({ step: "failed", reason: errorMessage(e) })
+      },
     })
   }
   const submit = (tx: Submittable, account: Account) => {

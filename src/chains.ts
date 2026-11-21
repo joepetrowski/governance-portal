@@ -272,6 +272,32 @@ export function getClient(chain: ChainId): PolkadotClient {
   return client
 }
 
+let holds = 0
+
+/**
+ * Keep the connections open until the returned function is called, for work that must not be cut
+ * off, such as following a transaction to finality.
+ */
+export function holdClients(): () => void {
+  holds += 1
+  let released = false
+  return () => {
+    if (!released) holds -= 1
+    released = true
+  }
+}
+
+/**
+ * Close the connection to every chain, unless something holds them open. Returns whether they
+ * were closed. `getClient` connects again when a chain is next needed.
+ */
+export function closeClients(): boolean {
+  if (holds > 0) return false
+  for (const client of clients.values()) client.destroy()
+  clients.clear()
+  return true
+}
+
 const polkadotAssetHubApi = () => getClient("assetHub").getTypedApi(assetHub)
 
 /**
