@@ -25,8 +25,9 @@ the deployment. Read it first. This file holds the conventions that the README d
 - Never sign or submit a transaction to a live chain, in the site's tests, in scripts, or while
   checking work. Tests use a mock wallet that refuses to sign. The scripts in `scripts/` only read
   and dry-run.
-- Develop on a branch, or in a fork for outside contributors, and open a pull request. Do not
-  develop on `main`: Every push to it deploys to production.
+- Develop on a branch, or in a fork for outside contributors. Do not develop on `main`: Every push
+  to it deploys to production. Outside contributions come in as pull requests. The maintainer may
+  merge a branch into `main` without one.
 - Commit and push only when the maintainer asks. Put separate features in separate commits.
 - Never put secrets, tokens, or personal data in the repository. The site needs none.
 
