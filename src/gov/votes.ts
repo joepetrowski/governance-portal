@@ -30,6 +30,8 @@ export interface AccountStatus {
   free: { assetHub: bigint; collectives: bigint; kusamaAssetHub: bigint }
   /** Keyed by `stageKey`. */
   votes: Record<string, VoteStatus>
+  /** Networks that could not be read, whose balances here are zero and mean nothing. */
+  unread: Network[]
 }
 
 /** Key of a referendum that is unique across bodies and networks, such as "polkadot-open-1973". */
@@ -90,6 +92,7 @@ export async function loadAccountStatus(
   const collectives = collectivesApi()
   const fellowship = stages.filter((s) => s.body === "fellowship")
   const votes: Record<string, VoteStatus> = {}
+  const unread: Network[] = []
 
   const perNetwork = async (network: Network) => {
     if (skip.includes(network)) return { free: 0n, reserved: 0n }
@@ -113,6 +116,7 @@ export async function loadAccountStatus(
     })
     if (network === "polkadot") return read
     return read.catch(() => {
+      unread.push(network)
       for (const stage of open) votes[stageKey(stage)] = { type: "unknown" }
       return { free: 0n, reserved: 0n }
     })
@@ -154,6 +158,7 @@ export async function loadAccountStatus(
       kusamaAssetHub: kusama.free,
     },
     votes,
+    unread,
   }
 }
 

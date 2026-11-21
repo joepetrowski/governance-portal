@@ -31,8 +31,9 @@ export default async (request, context) => {
 
   const headers = {
     "content-type": "application/octet-stream",
-    // A release asset does not change, and the browser checks what it receives, so the CDN may
-    // keep it for a day. That also keeps repeated requests from reaching GitHub.
+    // A release asset rarely changes, and the browser checks what it receives, so the CDN may
+    // keep it for a day. That also keeps repeated requests from reaching GitHub. If a maintainer
+    // replaces an asset, the old bytes fail the browser's check until the copy expires.
     "cache-control": "public, max-age=3600, s-maxage=86400",
     "x-content-type-options": "nosniff",
   }

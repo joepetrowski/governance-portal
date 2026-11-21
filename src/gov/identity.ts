@@ -35,7 +35,13 @@ export interface AccountIdentity {
  * Characters that look like the mark of a confirmed identity. They are dropped from names so that
  * a name cannot award itself the mark.
  */
-const MARKS = /[\u2713\u2714\u2611\u2705\u{1F5F8}]\uFE0F?/gu
+const MARKS = /[\u2713\u2714\u2611\u2705\u221A\u{1F5F8}\u{1F5F9}]\uFE0F?/gu
+
+/**
+ * The slash and characters that look like it. They become spaces, so that a name cannot pass for
+ * the "{name}/{sub-name}" of a sub-identity, in which the slash is the portal's own.
+ */
+const SLASHES = /[/\u2044\u2215\u29F8\uFF0F]/g
 
 /**
  * The standing of an identity, from the judgements of registrars. It is "negative" if any judged
@@ -54,7 +60,7 @@ export function standing(judgements: [number, { type: string }][] | undefined): 
 /**
  * The text of an identity field, or null if it has none. Only raw fields are text. Control and
  * formatting characters are dropped, so that a name cannot reorder or hide what is around it, and
- * so are check marks.
+ * so are check marks. A slash becomes a space.
  */
 export function dataText(data: IdentityData | undefined): string | null {
   if (!data || !/^Raw\d+$/.test(data.type)) return null
@@ -74,6 +80,7 @@ export function dataText(data: IdentityData | undefined): string | null {
     return null
   }
   const clean = text
+    .replace(SLASHES, " ")
     .replace(/\s+/g, " ")
     .replace(/[\p{Cc}\p{Cf}]/gu, "")
     .replace(MARKS, "")

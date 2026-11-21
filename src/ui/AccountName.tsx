@@ -27,7 +27,6 @@ function Mark({ standing }: { standing: Standing }) {
   return (
     <svg
       role="img"
-      aria-label={LABELS[standing]}
       viewBox="0 0 16 16"
       className={`ml-1 inline h-3.5 w-3.5 align-[-0.125em] ${COLORS[standing]}`}
     >
@@ -78,7 +77,8 @@ export function AccountName({ address, network }: { address: string; network: Ne
       className="break-all text-left underline decoration-dotted underline-offset-2"
       onClick={() => setFull(!full)}
     >
-      {identity.name}
+      {/* Isolated, so that right-to-left letters in a name cannot reorder what is around it. */}
+      <bdi>{identity.name}</bdi>
       <Mark standing={identity.standing} />
       {full && <span className="font-mono"> ({address})</span>}
     </button>

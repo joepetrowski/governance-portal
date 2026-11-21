@@ -21,6 +21,12 @@ export function DepositButton(props: {
 
   // The deposit is taken on the chain that hosts the referendum.
   const chain = stage.body === "fellowship" ? "collectives" : NETWORKS[stage.network].assetHub
+  if (stage.body === "open" && status.unread.includes(stage.network))
+    return (
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        Unable to read the balance of the selected account on {CHAINS[chain].name}.
+      </span>
+    )
   const free = status.free[chain]
   if (free < stage.deposit.required)
     return (

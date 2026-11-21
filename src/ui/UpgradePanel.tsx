@@ -79,7 +79,11 @@ function UpgradeRow(props: {
                 Downloading and checking the runtime…
               </p>
             )}
-            {error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">{error}</p>}
+            {error && (
+              <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400">
+                {error}
+              </p>
+            )}
             <TxStatus state={state} />
           </div>
         )}

@@ -50,7 +50,7 @@ describe("scanOngoing", () => {
     expect(c.reads).not.toContain(301)
   })
 
-  it("scans on for a deciding referendum that left a queue after the horizon passed it", async () => {
+  it("scans on for a deciding referendum that left a queue after the horizon passed", async () => {
     const c = chain({ ...old(0, 799), 300: ongoing(ROOT, true) }, 1000)
     const found = await scanOngoing({
       ...c,

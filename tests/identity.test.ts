@@ -36,6 +36,13 @@ describe("dataText", () => {
   it("drops check marks, which would imitate the mark of a confirmed identity", () => {
     expect(dataText(raw("Alice ✓"))).toBe("Alice")
     expect(dataText(raw("✅ Alice ✔️"))).toBe("Alice")
+    expect(dataText(raw("Alice √ 🗹"))).toBe("Alice")
+  })
+
+  it("turns a slash into a space, so that a name cannot pass for a sub-identity", () => {
+    expect(dataText(raw("Polkadot/Treasury"))).toBe("Polkadot Treasury")
+    expect(dataText(raw("Polkadot ／ Treasury"))).toBe("Polkadot Treasury")
+    expect(identityName(raw("Polkadot/Treasury"))).toBe("Polkadot Treasury")
   })
 })
 

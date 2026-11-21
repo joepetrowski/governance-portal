@@ -61,7 +61,11 @@ export function WhitelistButton(props: {
       {building && (
         <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Building the referendum…</p>
       )}
-      {error && <p className="mt-2 text-xs text-red-700 dark:text-red-400">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      )}
       <TxStatus state={state} />
     </div>
   )
