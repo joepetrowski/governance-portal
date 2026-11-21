@@ -336,6 +336,19 @@ export const systemApi = (chain: ChainId) =>
     "query" | "tx" | "constants"
   >
 
+const polkadotPeopleApi = () => getClient("people").getTypedApi(people)
+
+/**
+ * Typed API of a network's People chain, which holds identities. Kusama is given the type of
+ * Polkadot, as in `assetHubApi`: The Identity pallet is the same on both.
+ */
+export const peopleApi = (network: Network) =>
+  network === "polkadot"
+    ? polkadotPeopleApi()
+    : (getClient("kusamaPeople").getTypedApi(kusamaPeople) as unknown as ReturnType<
+        typeof polkadotPeopleApi
+      >)
+
 /** Typed API of Collectives, which hosts the Fellowship and its referenda. */
 export const collectivesApi = () => getClient("collectives").getTypedApi(collectives)
 

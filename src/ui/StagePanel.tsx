@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import type { Stage } from "../gov/load"
 import { duration, formatBalance, percent } from "./format"
-import { Short } from "./Short"
+import { AccountName } from "./AccountName"
 
 function statusLine(stage: Stage): { label: string; detail: string } {
   const { status, now, blockMs } = stage
@@ -111,7 +111,8 @@ function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
       <span className="text-zinc-600 dark:text-zinc-400">Decision deposit</span>
       {placed ? (
         <span>
-          {formatBalance(placed.amount, stage.network)} placed by <Short value={placed.who} />
+          {formatBalance(placed.amount, stage.network)} placed by{" "}
+          <AccountName address={placed.who} network={stage.network} />
         </span>
       ) : (
         <span className="flex flex-wrap items-center justify-end gap-2">
@@ -164,7 +165,8 @@ export function StagePanel(props: {
       </div>
       <DepositRow stage={stage} action={props.depositAction} />
       <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        Aye {stage.ayes} · Nay {stage.nays} · submitted by <Short value={stage.submitter} />
+        Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
+        <AccountName address={stage.submitter} network={stage.network} />
       </p>
       {children}
     </section>

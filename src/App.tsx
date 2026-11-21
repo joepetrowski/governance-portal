@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { CHAINS, type Network, NETWORK_IDS, NETWORKS } from "./chains"
 import type { Proposal } from "./gov/load"
+import { NamesContext } from "./names"
 import { needsCleanup } from "./gov/cleanup"
 import { CleanupPanel } from "./ui/CleanupPanel"
 import { formatTime } from "./ui/format"
@@ -11,6 +12,7 @@ import { UpgradePanel } from "./ui/UpgradePanel"
 import { WalletButton } from "./ui/WalletButton"
 import { useAccountStatuses } from "./useAccountStatuses"
 import { useChainUpgrades } from "./useChainUpgrades"
+import { useNames } from "./useNames"
 import { useCleanups } from "./useCleanups"
 import { useReleaseHashes } from "./useReleaseHashes"
 import { useSnapshot } from "./useSnapshot"
@@ -33,6 +35,8 @@ export default function App() {
   const releaseHashes = useReleaseHashes(
     chainUpgrades.length > 0 || (snapshot?.proposals.some((p) => p.upgrades.length > 0) ?? false),
   )
+
+  const names = useNames(snapshot)
 
   const [shown, setShown] = useState<Network | "all">("polkadot")
   // Under "Polkadot", a Fellowship referendum that acts on Kusama is still shown to the members
@@ -121,18 +125,20 @@ export default function App() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">No active referenda.</p>
       )}
 
-      <div className="space-y-4">
-        {proposals.map((proposal) => (
-          <ProposalCard
-            key={proposal.id}
-            proposal={proposal}
-            fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
-            releaseHashes={releaseHashes ?? {}}
-            statuses={statuses}
-            onVoted={refresh}
-          />
-        ))}
-      </div>
+      <NamesContext.Provider value={names}>
+        <div className="space-y-4">
+          {proposals.map((proposal) => (
+            <ProposalCard
+              key={proposal.id}
+              proposal={proposal}
+              fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
+              releaseHashes={releaseHashes ?? {}}
+              statuses={statuses}
+              onVoted={refresh}
+            />
+          ))}
+        </div>
+      </NamesContext.Provider>
 
       {snapshot && (
         <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">
