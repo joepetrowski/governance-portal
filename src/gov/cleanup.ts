@@ -68,6 +68,9 @@ const voteBalance = (vote: ConvictionVotingVoteAccountVote): bigint => {
 
 const max = (values: bigint[]) => values.reduce((a, b) => (b > a ? b : a), 0n)
 
+/** Whether the account has stale votes to remove or a voting lock that can be lowered. */
+export const needsCleanup = (cleanup: Cleanup) => cleanup.stale.length + cleanup.tracks.length > 0
+
 /**
  * Read an account's stale votes and voting locks from Asset Hub, and work out what clearing them
  * would unlock.

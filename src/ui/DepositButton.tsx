@@ -3,7 +3,8 @@ import type { Stage } from "../gov/load"
 import { type AccountStatus, decisionDepositTx } from "../gov/votes"
 import { useWallet } from "../wallet"
 import { formatBalance } from "./format"
-import { choice, TxStatus, useSubmit } from "./tx"
+import { choice, useSubmit } from "./tx"
+import { TxStatus } from "./TxStatus"
 
 /** Places a missing decision deposit from the selected account. Any account may place it. */
 export function DepositButton(props: {

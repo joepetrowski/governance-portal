@@ -4,7 +4,8 @@ import { FELLOWSHIP_SUBMIT_RANK, fellowshipCallsFor, fellowshipSubmitTx } from "
 import type { AccountStatus } from "../gov/votes"
 import { useWallet } from "../wallet"
 import { loadOpengov } from "./opengov"
-import { choice, TxStatus, useSubmit } from "./tx"
+import { choice, useSubmit } from "./tx"
+import { TxStatus } from "./TxStatus"
 
 /**
  * Opens the Fellowship referendum that whitelists the call of a public referendum which has none.

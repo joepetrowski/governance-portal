@@ -1,8 +1,9 @@
 import { NETWORKS, RELAY_BLOCK_MS } from "../chains"
-import { type Cleanup, cleanupTx, MAX_REMOVALS } from "../gov/cleanup"
+import { type Cleanup, cleanupTx, MAX_REMOVALS, needsCleanup } from "../gov/cleanup"
 import { type Account, useWallet } from "../wallet"
 import { formatBalance, formatDateTime, shortAddress } from "./format"
-import { choice, TxStatus, useSubmit } from "./tx"
+import { choice, useSubmit } from "./tx"
+import { TxStatus } from "./TxStatus"
 
 /** One account's stale votes and lock, with the button that clears them. */
 function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: () => void }) {
@@ -82,9 +83,6 @@ function AccountCleanup(props: { cleanup: Cleanup; account: Account; onCleaned: 
     </li>
   )
 }
-
-/** Whether the account has stale votes to remove or a voting lock that can be lowered. */
-export const needsCleanup = (cleanup: Cleanup) => cleanup.stale.length + cleanup.tracks.length > 0
 
 /**
  * Votes on finished public referenda, and voting locks that can be lowered, per wallet account.

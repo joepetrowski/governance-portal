@@ -3,7 +3,8 @@ import { CHAINS, NETWORKS, RELAY_BLOCK_MS } from "../chains"
 import { applyUpgrade, type ChainUpgrade } from "../gov/apply"
 import type { ReleaseHashes } from "../gov/versions"
 import { formatDateTime, shortHex } from "./format"
-import { choice, TxStatus, useSubmit } from "./tx"
+import { choice, useSubmit } from "./tx"
+import { TxStatus } from "./TxStatus"
 
 /** One chain's upgrade, with the button that applies it when it is waiting for that. */
 function UpgradeRow(props: {

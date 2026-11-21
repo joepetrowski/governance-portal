@@ -21,7 +21,8 @@ import { useWallet } from "../wallet"
 import { CallTree } from "./CallTree"
 import { formatBalance, formatList, shortHex } from "./format"
 import { loadOpengov } from "./opengov"
-import { choice, type Submittable, TxStatus, useSubmit } from "./tx"
+import { choice, type Submittable, useSubmit } from "./tx"
+import { TxStatus } from "./TxStatus"
 
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"

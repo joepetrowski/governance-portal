@@ -12,7 +12,8 @@ import {
 } from "../gov/votes"
 import { type Account, useWallet } from "../wallet"
 import { formatExact, parseBalance, shortAddress } from "./format"
-import { choice, TxStatus, useSubmit } from "./tx"
+import { choice, useSubmit } from "./tx"
+import { TxStatus } from "./TxStatus"
 
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"

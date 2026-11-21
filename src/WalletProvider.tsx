@@ -1,39 +1,15 @@
-// Connection to a browser wallet extension (Talisman first, any compatible extension works).
+// Holds the connection to a browser wallet extension and remembers the last choice.
 
 import {
   connectInjectedExtension,
   getInjectedExtensions,
   type InjectedExtension,
-  type InjectedPolkadotAccount,
 } from "polkadot-api/pjs-signer"
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
+import { type Account, WalletContext } from "./wallet"
 
 const DAPP_NAME = "Polkadot Governance"
 const STORAGE_KEY = "wallet"
-
-/** A wallet account, with the signer that the extension provides for it. */
-export type Account = InjectedPolkadotAccount
-
-interface Wallet {
-  /** Extensions found in this browser, Talisman first. */
-  available: string[]
-  /** Name of the connected extension. */
-  connected: string | null
-  /** Accounts the extension has shared with this page. */
-  accounts: Account[]
-  /** The account that signs. */
-  selected: Account | null
-  /** Why the last attempt to connect failed, if it did. */
-  error: string | null
-  /** Connect to an extension by name, and remember it for the next visit. */
-  connect: (extension: string) => Promise<void>
-  /** Forget the extension and its accounts. */
-  disconnect: () => void
-  /** Choose the account that signs. */
-  select: (address: string) => void
-}
-
-const WalletContext = createContext<Wallet | null>(null)
 
 const remembered = (): { extension?: string; address?: string } => {
   try {
@@ -57,7 +33,10 @@ const talismanFirst = (names: string[]) =>
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState<string[]>([])
   const [extension, setExtension] = useState<InjectedExtension | null>(null)
-  const [accounts, setAccounts] = useState<Account[]>([])
+  // Accounts that the extension reported after connecting, kept with the extension they are from.
+  const [reported, setReported] = useState<{ from: InjectedExtension; accounts: Account[] } | null>(
+    null,
+  )
   const [address, setAddress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -89,18 +68,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => timers.forEach(clearTimeout)
   }, [connect])
 
-  useEffect(() => {
-    if (!extension) return
+  useEffect(
+    () => extension?.subscribe((all) => setReported({ from: extension, accounts: all })),
+    [extension],
+  )
+  // Until the extension reports a change, its accounts are the ones it has at connection.
+  const accounts = useMemo(() => {
+    const all = reported?.from === extension ? reported.accounts : (extension?.getAccounts() ?? [])
     // Extensions also share Ethereum accounts, which these chains cannot use.
-    const usable = (all: Account[]) => all.filter((a) => !a.address.startsWith("0x"))
-    setAccounts(usable(extension.getAccounts()))
-    return extension.subscribe((all) => setAccounts(usable(all)))
-  }, [extension])
+    return all.filter((a) => !a.address.startsWith("0x"))
+  }, [extension, reported])
 
   const disconnect = useCallback(() => {
     extension?.disconnect()
     setExtension(null)
-    setAccounts([])
+    setReported(null)
     remember({})
   }, [extension])
 
@@ -128,11 +110,4 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       {children}
     </WalletContext.Provider>
   )
-}
-
-/** The wallet connection. Must be called inside `WalletProvider`. */
-export function useWallet(): Wallet {
-  const wallet = useContext(WalletContext)
-  if (!wallet) throw new Error("useWallet must be used inside WalletProvider")
-  return wallet
 }
