@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { NETWORKS } from "../chains"
+import { FINISHED_MS, finishedAgo } from "../gov/finished"
 import { isFinished, type Proposal, proposalAnchor } from "../gov/load"
 import { type ReleaseHashes, upgradeVersion } from "../gov/versions"
 import type { AccountStatus } from "../gov/votes"
@@ -192,6 +193,12 @@ export function ProposalCard(props: Props) {
             </li>
           ))}
         </ul>
+      )}
+      {isFinished(proposal) && finishedAgo(proposal) > FINISHED_MS && (
+        <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+          This proposal ended more than a day ago. Its call is decoded with the runtimes of today,
+          which may differ from those it was written for.
+        </p>
       )}
       {proposal.otherEffects > 0 && (
         <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">

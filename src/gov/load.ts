@@ -397,7 +397,8 @@ const ENDED_DAY = 86_400_000 / RELAY_BLOCK_MS
 const SCAN_CHUNK = 64
 /**
  * Slack added to the longest possible life of a referendum: a day of Relay Chain blocks. With it,
- * the scan also reads every referendum that ended in the last day.
+ * the scan also reads the referenda that ended in the last day, except one that had waited in the
+ * queue of a full track for longer than a referendum otherwise lives.
  */
 const SCAN_MARGIN = 14_400
 

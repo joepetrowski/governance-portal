@@ -11,7 +11,7 @@ vi.mock("../src/chains", async (original) => ({
 
 const { decodeCall } = await import("../src/gov/decode")
 const { endedAgo, finishedProposals } = await import("../src/gov/finished")
-const { lastBlockWhere } = await import("../src/gov/history")
+const { lastBlockWhere, lastOngoingBlock } = await import("../src/gov/history")
 const {
   endedOutcome,
   endedStage,
@@ -151,6 +151,60 @@ describe("lastBlockWhere", () => {
   })
 })
 
+describe("lastOngoingBlock", () => {
+  // A chain with about three blocks to a Relay Chain block, as Asset Hub has.
+  const relayOf = (block: number) => 5_000_000 + Math.floor(block / 2.93)
+  const head = 3_000_000
+  /**
+   * Search for a referendum that was ongoing from block `submitted` until block `ended`. The chain
+   * records the Relay Chain block that it had seen by the block before, or by that block itself.
+   */
+  const search = async (submitted: number, ended: number, seenBy: "before" | "same") => {
+    const asked = new Set<number>()
+    const found = await lastOngoingBlock({
+      head,
+      relayNow: relayOf(head),
+      endedAt: relayOf(seenBy === "before" ? ended - 1 : ended),
+      relayAt: async (block) => (asked.add(block), relayOf(block)),
+      ongoingAt: async (block) => (asked.add(block), block >= submitted && block < ended),
+    })
+    return { found, reads: asked.size }
+  }
+
+  it("finds the last block of a referendum that lived for weeks", async () => {
+    for (const seenBy of ["before", "same"] as const) {
+      const { found, reads } = await search(1_000_000, 2_950_000, seenBy)
+      expect(found).toBe(2_949_999)
+      expect(reads).toBeLessThan(30)
+    }
+  })
+
+  it("finds one that lived for an hour and ended long ago", async () => {
+    // It was submitted long after the block that the search starts from.
+    for (const seenBy of ["before", "same"] as const) {
+      const { found } = await search(1_500_000, 1_501_800, seenBy)
+      expect(found).toBe(1_501_799)
+    }
+  })
+
+  it("finds one that ended moments ago", async () => {
+    const { found } = await search(2_999_000, 2_999_990, "before")
+    expect(found).toBe(2_999_989)
+  })
+
+  it("gives up on one that ended before the chain began, or was never ongoing", async () => {
+    const early = await lastOngoingBlock({
+      head,
+      relayNow: relayOf(head),
+      endedAt: 4_000_000,
+      relayAt: async (block) => relayOf(block),
+      ongoingAt: async () => false,
+    })
+    expect(early).toBeNull()
+    expect((await search(2_000_000, 2_000_000, "same")).found).toBeNull()
+  })
+})
+
 describe("finishedProposals", () => {
   it("joins a public referendum with the Fellowship one that whitelisted its call", async () => {
     const [publicStage, fellowshipStage] = [await open(), await fellowship()]
@@ -169,6 +223,23 @@ describe("finishedProposals", () => {
     expect(proposalAnchor(proposal)).toBe("polkadot-1973")
     expect(findByAnchor(proposals, "fellowship-681")).toBe(proposal)
     expect(findByAnchor(proposals, "kusama-1973")).toBeUndefined()
+  })
+
+  it("does not join a Fellowship referendum that ended after the public one", async () => {
+    // The public one ended 12 hours ago. This Fellowship one ended a minute ago.
+    const late = endedStage({
+      ref: { ...fellowshipRef, at: fellowshipRef.now - 5 },
+      last: { info: ongoing({ bare_ayes: 15, ayes: 20, nays: 0 }), bytes: null, voters: 32n },
+      track,
+      call: await decodeCall({ id: "collectives" }, fromHex(fixtures.fellowship681)),
+    })
+    const publicStage = await open()
+    const key = `polkadot:${whitelistDispatch(publicStage)?.hash}`
+    const proposals = finishedProposals([late, publicStage], new Map([[key, late]]), new Set())
+    expect(proposals.map((p) => [p.open?.index, p.endedFellowship?.index])).toEqual([
+      [undefined, 681],
+      [1973, undefined],
+    ])
   })
 
   it("gives a Fellowship referendum its own card, unless it is shown elsewhere", async () => {

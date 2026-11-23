@@ -81,20 +81,69 @@ function once(key: string, read: () => Promise<LastState | null>) {
   return result
 }
 
-/** How many times to look further back for a block in which a public referendum was ongoing. */
+/** How many times to look further back for a block from before a public referendum ended. */
 const BRACKET_TRIES = 6
+/** How far around the estimated block of the end the search first looks, in blocks. */
+const NEAR = 256
+
+/**
+ * The last block of a chain in which a referendum was ongoing, when the referendum counts the
+ * blocks of another chain: A public referendum ended at Relay Chain block `endedAt`, and its state
+ * is in Asset Hub blocks. Null if no such block is found.
+ *
+ * `relayAt` gives the Relay Chain block that a block of the chain had seen, which never goes down
+ * from one block to the next. So the block at which it first reached `endedAt` is found by
+ * bisection, wherever the referendum began. The referendum ended in that block or just after it,
+ * and `ongoingAt` then finds the last block before that. `head` is the newest block that can be
+ * read, and `relayNow` the Relay Chain block that it has seen.
+ *
+ * Searching for a block in which the referendum was ongoing would not do: Before it was submitted
+ * it was not ongoing either, so a search that started there would look ever further back.
+ */
+export async function lastOngoingBlock(opts: {
+  head: number
+  relayNow: number
+  endedAt: number
+  relayAt: (block: number) => Promise<number>
+  ongoingAt: (block: number) => Promise<boolean>
+}): Promise<number | null> {
+  const { head, endedAt, relayAt, ongoingAt } = opts
+  const before = async (block: number) => (await relayAt(block)) < endedAt
+  if (await before(head)) return null
+
+  // A block from before the end. There are about three Asset Hub blocks to a Relay Chain block.
+  let back = Math.max(0, opts.relayNow - endedAt) * 4 + 64
+  let lo = Math.max(1, head - back)
+  for (let tries = 1; !(await before(lo)); tries++) {
+    if (lo === 1 || tries === BRACKET_TRIES) return null
+    back *= 2
+    lo = Math.max(1, head - back)
+  }
+  // The blocks of the two chains keep a steady pace, so the end is near where it would be if the
+  // pace were even. Looking there first saves most of the bisection.
+  let hi = head
+  const [first, last] = await Promise.all([relayAt(lo), relayAt(hi)])
+  const even = lo + Math.round(((endedAt - first) / Math.max(1, last - first)) * (hi - lo))
+  const near = [Math.max(lo, even - NEAR), Math.min(hi, even + NEAR)]
+  if (await before(near[0])) lo = near[0]
+  if (!(await before(near[1]))) hi = near[1]
+  const edge = await lastBlockWhere(lo, hi, before)
+
+  // The referendum ended when the chain had seen `endedAt`, which is in the block after `edge` or
+  // the one after that. A few blocks to either side allow for how the chain counts.
+  const from = Math.max(1, edge - 2)
+  const to = Math.min(head, edge + 8)
+  if (!(await ongoingAt(from)) || (await ongoingAt(to))) return null
+  return lastBlockWhere(from, to, ongoingAt)
+}
 
 /**
  * A public referendum that ended at Relay Chain block `endedAt`, as it was in the last Asset Hub
  * block in which it was ongoing. Null if no such block is found. Fails if the node does not keep
- * state that old.
+ * state that old. See `lastOngoingBlock` for how the block is found.
  *
- * Public referenda count Relay Chain blocks, while their state is in Asset Hub blocks, of which
- * there are several to a Relay Chain block. So the block is searched for: first one far enough
- * back that the referendum was ongoing, then the last such block by bisection.
- *
- * Storage reads: No runtime API or view function gives a referendum, its preimage, or the
- * issuance.
+ * Storage reads: No runtime API or view function gives a referendum, its preimage, the issuance,
+ * or the Relay Chain block that a block has seen.
  */
 export const lastOngoingPublic = (
   network: Network,
@@ -106,36 +155,37 @@ export const lastOngoingPublic = (
     const chain = NETWORKS[network].assetHub
     const api = assetHubApi(network)
     const head = (await getClient(chain).getFinalizedBlock()).number
-    const seen = new Map<
-      number,
-      Promise<{ block: { at: string }; info: LastState["info"] | null }>
-    >()
-    const read = (height: number) => {
-      let found = seen.get(height)
-      if (!found) {
-        found = at(chain, height).then(async (block) => {
-          const value = await api.query.Referenda.ReferendumInfoFor.getValue(index, block)
-          const info = value?.type === "Ongoing" ? (value.value as LastState["info"]) : null
-          return { block, info }
-        })
-        seen.set(height, found)
+    // Each block is looked up once, however often the search asks for it.
+    const memo = <T>(read: (height: number) => Promise<T>) => {
+      const seen = new Map<number, Promise<T>>()
+      return (height: number) => {
+        let found = seen.get(height)
+        if (!found) seen.set(height, (found = read(height)))
+        return found
       }
-      return found
     }
-    const ongoing = async (height: number) => (await read(height)).info !== null
+    const blockAt = memo((height) => at(chain, height))
+    const relayAt = memo(async (height) =>
+      api.query.ParachainSystem.LastRelayChainBlockNumber.getValue(await blockAt(height)),
+    )
+    const infoAt = memo(async (height) => {
+      const value = await api.query.Referenda.ReferendumInfoFor.getValue(
+        index,
+        await blockAt(height),
+      )
+      return value?.type === "Ongoing" ? (value.value as LastState["info"]) : null
+    })
 
-    // A block further back than the chain is long cannot be read. That is so for a referendum
-    // that ended before referenda moved to Asset Hub, which is then given up at once.
-    let back = Math.max(0, relayNow - endedAt) * 4 + 64
-    for (let tries = 1; ; tries++) {
-      if (back >= head) return null
-      if (await ongoing(head - back)) break
-      if (tries === BRACKET_TRIES) return null
-      back *= 2
-    }
-    const lo = head - back
-    const { block, info } = await read(await lastBlockWhere(lo, head, ongoing))
-    if (!info) return null
+    const found = await lastOngoingBlock({
+      head,
+      relayNow,
+      endedAt,
+      relayAt,
+      ongoingAt: async (height) => (await infoAt(height)) !== null,
+    })
+    const info = found === null ? null : await infoAt(found)
+    if (found === null || !info) return null
+    const block = await blockAt(found)
     const [bytes, issuance, inactive] = await Promise.all([
       proposalBytes(info.proposal, (key) => api.query.Preimage.PreimageFor.getValue(key, block)),
       api.query.Balances.TotalIssuance.getValue(block),

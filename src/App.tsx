@@ -164,8 +164,8 @@ export default function App() {
 
       {missing && (
         <p className="mb-3 text-sm text-amber-800 dark:text-amber-300">
-          {missing} is not among the referenda shown here. It may be on a track that the portal does
-          not show, or it ended and its last state could not be read.
+          {missing} is not among the referenda shown here. It may not exist, it may be on a track
+          that the portal does not show, or it ended and its last state could not be read.
         </p>
       )}
 

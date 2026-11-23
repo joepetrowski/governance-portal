@@ -18,7 +18,8 @@ The portal:
 - Keeps showing a Fellowship referendum after it has passed, with its final tally, while the public
   referendum that it whitelisted is open.
 - Keeps a referendum on the page for 24 hours after it ends, with how it ended and its final
-  tally. A link to a referendum that ended earlier still opens it. Both need an RPC node that keeps
+  tally. A link to a referendum that ended earlier still opens it, with a note that its call is decoded
+  with the current runtimes. Both need an RPC node that keeps
   old state, since a chain drops the call and tally of a referendum when it ends.
 - Builds system upgrade proposals from a Fellowship release in a release wizard, using
   [`opengov`](https://github.com/joepetrowski/opengov-cli).
@@ -43,7 +44,8 @@ live chain state and does not index data itself or rely on API calls to third-pa
 uses GitHub's API to download runtime build artifacts. It hashes each Wasm blob and compares the
 hash to the release notes, but it does not build the blob from source.
 
-The portal is not a discussion forum and does not display referenda once they are no longer active.
+The portal is not a discussion forum. It follows active referenda, and keeps one that has ended in
+view for 24 hours, or for as long as someone holds a link to it.
 
 ## Development
 

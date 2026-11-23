@@ -56,10 +56,17 @@ async function linkedRef(where: Network | "fellowship", index: number): Promise<
   return end && { network: where, body: "open", index, now, ...end }
 }
 
+const ago = (stage: Stage | undefined) =>
+  stage?.status.phase === "ended" ? endedAgo({ ...stage, at: stage.status.at }) : 0
+
+/** How long ago a finished proposal ended, in milliseconds. Zero for one that is not finished. */
+export const finishedAgo = (proposal: Proposal) => ago(proposal.open ?? proposal.endedFellowship)
+
 /**
  * Join ended referenda into finished proposals, newest first. A public referendum that dispatched
  * a call through the whitelist takes the Fellowship referendum that whitelisted it from
- * `whitelisters`, which is keyed by network and hash. A Fellowship referendum that is shown with a
+ * `whitelisters`, which is keyed by network and hash. One that ended only after the public
+ * referendum did is not taken, since it cannot be what let that referendum's call be dispatched. A Fellowship referendum that is shown with a
  * public one, here or among the indexes in `shownElsewhere`, gets no card of its own.
  */
 export function finishedProposals(
@@ -71,7 +78,8 @@ export function finishedProposals(
   const proposals: Proposal[] = []
   for (const stage of stages.filter((s) => s.body === "open")) {
     const dispatch = whitelistDispatch(stage)
-    const partner = dispatch ? whitelisters.get(`${stage.network}:${dispatch.hash}`) : undefined
+    const candidate = dispatch ? whitelisters.get(`${stage.network}:${dispatch.hash}`) : undefined
+    const partner = candidate && ago(candidate) >= ago(stage) ? candidate : undefined
     if (partner) paired.add(partner.index)
     proposals.push(
       makeProposal({
@@ -93,11 +101,7 @@ export function finishedProposals(
       }),
     )
   }
-  const ago = (p: Proposal) => {
-    const stage = p.open ?? p.endedFellowship
-    return stage?.status.phase === "ended" ? endedAgo({ ...stage, at: stage.status.at }) : 0
-  }
-  return proposals.sort((a, b) => ago(a) - ago(b))
+  return proposals.sort((a, b) => finishedAgo(a) - finishedAgo(b))
 }
 
 /**
