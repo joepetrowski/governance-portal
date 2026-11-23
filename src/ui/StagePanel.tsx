@@ -1,14 +1,25 @@
 import type { ReactNode } from "react"
-import type { Stage } from "../gov/load"
+import type { Outcome, Stage } from "../gov/load"
 import { duration, formatBalance, percent } from "./format"
 import { AccountName } from "./AccountName"
+
+const OUTCOME_LABELS: Record<Outcome, string> = {
+  approved: "Passed",
+  rejected: "Rejected",
+  canceled: "Canceled",
+  timedOut: "Timed out",
+  killed: "Killed",
+}
 
 function statusLine(stage: Stage): { label: string; detail: string } {
   const { status, now, blockMs } = stage
   const until = (block: number) => duration(block - now, blockMs)
   switch (status.phase) {
-    case "passed":
-      return { label: "Passed", detail: `${duration(now - status.at, blockMs)} ago` }
+    case "ended":
+      return {
+        label: OUTCOME_LABELS[status.outcome],
+        detail: `${duration(now - status.at, blockMs)} ago`,
+      }
     case "awaitingDeposit":
       return {
         label: "Waiting for decision deposit",
@@ -36,7 +47,10 @@ function statusLine(stage: Stage): { label: string; detail: string } {
   }
 }
 
-/** `past` is set for a referendum that has ended, whose threshold is then no longer in force. */
+/**
+ * `past` is set for a referendum that has ended, whose threshold is then no longer in force. The
+ * bar is green only when the threshold is met, so a rejected referendum does not look passed.
+ */
 function Meter(props: { label: string; current: number | null; required: number; past?: boolean }) {
   const { label, current, required } = props
   const needs = props.past ? "needed" : "needs"
@@ -151,7 +165,7 @@ function Badge(props: { green: boolean; children: string }) {
 /**
  * One referendum: status, approval and support against their thresholds, time elapsed, and decision
  * deposit. `children` go below, which is where the vote controls are placed. A referendum that has
- * passed shows its final tally, and no deposit. `statusNote` is added to the status line.
+ * ended shows its final tally, and no deposit. `statusNote` is added to the status line.
  */
 export function StagePanel(props: {
   stage: Stage
@@ -163,7 +177,8 @@ export function StagePanel(props: {
   const status = statusLine(stage)
   const label = status.label
   const detail = props.statusNote ? `${status.detail} · ${props.statusNote}` : status.detail
-  const passed = stage.status.phase === "passed"
+  const ended = stage.status.phase === "ended"
+  const passed = stage.status.phase === "ended" && stage.status.outcome === "approved"
   const heading = stage.body === "fellowship" ? "Fellowship referendum" : "Public referendum"
   return (
     <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -175,20 +190,20 @@ export function StagePanel(props: {
       </header>
       <p className="mt-2 text-sm">
         <span className="mr-2">
-          <Badge green={passed || stage.passing || stage.status.phase === "confirming"}>
+          <Badge green={ended ? passed : stage.passing || stage.status.phase === "confirming"}>
             {label}
           </Badge>
         </span>
         {detail}
       </p>
       <div className="mt-4 space-y-3">
-        <Meter label="Approval" {...stage.approval} past={passed} />
-        <Meter label="Support" {...stage.support} past={passed} />
+        <Meter label="Approval" {...stage.approval} past={ended} />
+        <Meter label="Support" {...stage.support} past={ended} />
         <TimeBar stage={stage} />
       </div>
-      {!passed && <DepositRow stage={stage} action={props.depositAction} />}
+      {!ended && <DepositRow stage={stage} action={props.depositAction} />}
       <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        {passed && "Final tally: "}Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
+        {ended && "Final tally: "}Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
         <AccountName address={stage.submitter} network={stage.network} />
       </p>
       {children}

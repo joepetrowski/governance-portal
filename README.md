@@ -15,6 +15,9 @@ The portal:
 - Gives every card a link, such as `#polkadot-1973`, that opens the page on that referendum.
 - Keeps showing a Fellowship referendum after it has passed, with its final tally, while the public
   referendum that it whitelisted is open.
+- Keeps a referendum on the page for 24 hours after it ends, with how it ended and its final
+  tally. A link to a referendum that ended earlier still opens it. Both need an RPC node that keeps
+  old state, since a chain drops the call and tally of a referendum when it ends.
 - Builds system upgrade proposals from a Fellowship release in a release wizard, using
   [`opengov`](https://github.com/joepetrowski/opengov-cli).
 - Creates referenda, and gives a link to share for those that a user cannot create (e.g., if they

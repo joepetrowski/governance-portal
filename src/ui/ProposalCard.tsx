@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { NETWORKS } from "../chains"
-import { type Proposal, proposalAnchor } from "../gov/load"
+import { isFinished, type Proposal, proposalAnchor } from "../gov/load"
 import { type ReleaseHashes, upgradeVersion } from "../gov/versions"
 import type { AccountStatus } from "../gov/votes"
 import { CallTree } from "./CallTree"
@@ -61,9 +61,12 @@ function FellowshipStage({ proposal, fellowshipUncertain, statuses, onVoted }: P
         <VotePanel stage={proposal.fellowship} statuses={statuses} onVoted={onVoted} />
       </StagePanel>
     )
+  // A finished proposal shows the referenda it had, and nothing about what is still to do.
+  if (isFinished(proposal))
+    return proposal.endedFellowship ? <StagePanel stage={proposal.endedFellowship} /> : null
   if (!proposal.whitelist) return null
-  if (proposal.passedFellowship)
-    return <StagePanel stage={proposal.passedFellowship} statusNote="The call is whitelisted" />
+  if (proposal.endedFellowship)
+    return <StagePanel stage={proposal.endedFellowship} statusNote="The call is whitelisted" />
   // The referendum that whitelisted the call could not be found or read. Only that the call is
   // whitelisted is known, so the note claims no more than that.
   if (proposal.whitelist.whitelisted)
@@ -100,6 +103,7 @@ function FellowshipStage({ proposal, fellowshipUncertain, statuses, onVoted }: P
 }
 
 function OpenStage({ proposal, statuses, onVoted }: Props) {
+  if (isFinished(proposal)) return proposal.open ? <StagePanel stage={proposal.open} /> : null
   if (proposal.open)
     return (
       <StagePanel
@@ -121,7 +125,7 @@ function OpenStage({ proposal, statuses, onVoted }: Props) {
 
 /**
  * One proposal: its title, the chains it upgrades, its Fellowship and public stages side by side,
- * and its decoded call.
+ * and its decoded call. A finished proposal shows the final tallies, and has no controls.
  */
 export function ProposalCard(props: Props) {
   const { proposal } = props

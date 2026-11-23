@@ -12,6 +12,7 @@ import { UpgradePanel } from "./ui/UpgradePanel"
 import { WalletButton } from "./ui/WalletButton"
 import { useAccountStatuses } from "./useAccountStatuses"
 import { useAnchor } from "./useAnchor"
+import { useFinished } from "./useFinished"
 import { useChainUpgrades } from "./useChainUpgrades"
 import { useNames } from "./useNames"
 import { useCleanups } from "./useCleanups"
@@ -37,7 +38,9 @@ export default function App() {
     chainUpgrades.length > 0 || (snapshot?.proposals.some((p) => p.upgrades.length > 0) ?? false),
   )
 
-  const names = useNames(snapshot)
+  const anchor = useAnchor()
+  const { finished, done: finishedRead } = useFinished(snapshot, anchor)
+  const names = useNames(snapshot, finished)
 
   // The network that the visitor chose to see, and the link that the page had then.
   const [picked, setPicked] = useState<{ shown: Network | "all"; anchor: string | null }>({
@@ -52,30 +55,34 @@ export default function App() {
   const visible = (p: Proposal, under: Network | "all") =>
     under === "all" || p.network === under || (under === "polkadot" && canVote(p))
 
-  // The card that the address of the page links to. Its network is shown in place of the chosen
-  // one, until the visitor chooses again.
-  const anchor = useAnchor()
-  const target = snapshot && anchor ? findByAnchor(snapshot.proposals, anchor) : undefined
+  // The card that the address of the page links to, among the active and the finished ones. Its
+  // network is shown in place of the chosen one, until the visitor chooses again.
+  const target =
+    snapshot && anchor ? findByAnchor([...snapshot.proposals, ...finished], anchor) : undefined
   const shown =
     target && picked.anchor !== anchor && !visible(target, picked.shown)
       ? target.network
       : picked.shown
   const setShown = (next: Network | "all") => setPicked({ shown: next, anchor })
   const proposals = snapshot?.proposals.filter((p) => visible(p, shown)) ?? []
+  const finishedShown = finished.filter((p) => visible(p, shown))
 
   // The page scrolls to the card the first time it is there. After that the browser follows links
   // to cards by itself.
-  const targetShown = target !== undefined && proposals.includes(target)
+  const targetShown =
+    target !== undefined && (proposals.includes(target) || finishedShown.includes(target))
   const reached = useRef<string | null>(null)
   useEffect(() => {
     if (!target || !targetShown || reached.current === anchor) return
     reached.current = anchor
     document.getElementById(proposalAnchor(target))?.scrollIntoView()
   }, [anchor, target, targetShown])
-  // A link to a referendum that is not listed is said to be so, once its network has been read.
+  // A link to a referendum that is not listed is said to be so, once its network and the finished
+  // referenda have been read.
   const linked = anchor ? parseAnchor(anchor) : null
   const missing =
     snapshot &&
+    finishedRead &&
     linked &&
     !target &&
     (linked.where === "fellowship" ||
@@ -157,8 +164,8 @@ export default function App() {
 
       {missing && (
         <p className="mb-3 text-sm text-amber-800 dark:text-amber-300">
-          {missing} is not among the active referenda shown here. It may have ended, or be on a
-          track that the portal does not show.
+          {missing} is not among the referenda shown here. It may be on a track that the portal does
+          not show, or it ended and its last state could not be read.
         </p>
       )}
 
@@ -180,6 +187,28 @@ export default function App() {
             />
           ))}
         </div>
+        {finishedShown.length > 0 && (
+          <section className="mt-8">
+            <h2 className="text-lg font-semibold">Finished</h2>
+            <p className="mt-1 mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+              Referenda that ended in the last 24 hours, or that the address of this page links to,
+              with their final tallies.
+            </p>
+            <div className="space-y-4">
+              {finishedShown.map((proposal) => (
+                <ProposalCard
+                  key={proposal.id}
+                  proposal={proposal}
+                  fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
+                  releaseHashes={releaseHashes ?? {}}
+                  statuses={statuses}
+                  linked={proposal === target}
+                  onVoted={refresh}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </NamesContext.Provider>
 
       <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">

@@ -32,7 +32,10 @@ describe("scanOngoing", () => {
   it("finds the ongoing referenda and stops once the rest must have ended", async () => {
     const c = chain({ ...old(0, 799), 990: ongoing(ROOT, true), 950: ongoing(1, false) }, 1000)
     const found = await scanOngoing({ ...c, horizon: HORIZON, deciding: new Map(), queued: [] })
-    expect(found.map((f) => f.index)).toEqual([990, 950])
+    expect(found.ongoing.map((f) => f.index)).toEqual([990, 950])
+    // The ended referenda that it read on the way are reported with how they ended.
+    expect(found.ended.every((e) => e.outcome === "approved")).toBe(true)
+    expect(found.ended.map((e) => e.index)).toContain(999)
     // It stopped with the first chunk that reached a referendum from before the horizon.
     expect(Math.min(...c.reads)).toBeGreaterThan(700)
   })
@@ -45,7 +48,7 @@ describe("scanOngoing", () => {
       deciding: new Map([[ROOT, 1]]),
       queued: [300],
     })
-    expect(found.map((f) => f.index)).toEqual([990, 300])
+    expect(found.ongoing.map((f) => f.index)).toEqual([990, 300])
     // It was read directly, without scanning down to it.
     expect(c.reads).not.toContain(301)
   })
@@ -58,7 +61,7 @@ describe("scanOngoing", () => {
       deciding: new Map([[ROOT, 1]]),
       queued: [],
     })
-    expect(found.map((f) => f.index)).toEqual([300])
+    expect(found.ongoing.map((f) => f.index)).toEqual([300])
     // And stops once it has it.
     expect(Math.min(...c.reads)).toBeGreaterThan(200)
   })
@@ -66,6 +69,6 @@ describe("scanOngoing", () => {
   it("does not list a queued index whose referendum is no longer ongoing", async () => {
     const c = chain(old(0, 99), 100)
     const found = await scanOngoing({ ...c, horizon: HORIZON, deciding: new Map(), queued: [5] })
-    expect(found).toEqual([])
+    expect(found.ongoing).toEqual([])
   })
 })

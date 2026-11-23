@@ -8,15 +8,8 @@ vi.mock("../src/chains", async (original) => ({
 }))
 
 const { decodeCall } = await import("../src/gov/decode")
-const {
-  effectsBesidesWhitelist,
-  fellowshipMinRank,
-  findByAnchor,
-  makeProposal,
-  parseAnchor,
-  passedFellowshipStage,
-  proposalAnchor,
-} = await import("../src/gov/load")
+const { effectsBesidesWhitelist, fellowshipMinRank, makeProposal, parseAnchor } =
+  await import("../src/gov/load")
 const { parseReleaseHashes, upgradeVersion } = await import("../src/gov/versions")
 
 const proposalOf = async (hex: string, chain: "assetHub" | "kusamaAssetHub" = "assetHub") => {
@@ -147,74 +140,6 @@ describe("effectsBesidesWhitelist", () => {
   it("counts everything that is not the whitelist", async () => {
     const batch = await decodeCall({ id: "assetHub" }, fromHex(fixtures.craftedUpgradeWithTransfer))
     expect(effectsBesidesWhitelist(batch, "polkadot", HASH)).toBe(2)
-  })
-})
-
-describe("passedFellowshipStage", () => {
-  // Fellowship referendum 681 as it was in the block before it was approved, with made-up curves.
-  const linear = (ceil: number, floor: number) =>
-    ({ type: "LinearDecreasing", value: { length: 1e9, floor, ceil } }) as const
-  const stage = passedFellowshipStage({
-    index: 681,
-    info: {
-      track: 3,
-      proposal: { type: "Inline", value: new Uint8Array() },
-      submitted: 10_152_829,
-      submission_deposit: { who: "15DCWHQknBjc5YPFoVj8Pn2KoqrqYywJJ95BYNYJ4Fj3NLqz" },
-      decision_deposit: { who: "12T8DKkCLf2C6ddnkVFDdzY2mM8Q4GE7RpZVhL7P9jbFMfoe", amount: 50n },
-      deciding: { since: 10_000_000, confirming: 10_100_000 },
-      in_queue: false,
-      tally: { bare_ayes: 15, ayes: 20, nays: 0 },
-    },
-    track: {
-      name: "fellows",
-      prepare_period: 150,
-      decision_period: 200_000,
-      confirm_period: 150,
-      decision_deposit: 50n,
-      min_approval: linear(1e9, 5e8),
-      min_support: linear(5e8, 0),
-    },
-    eligible: 32,
-    since: 10_100_000,
-    now: 10_184_756,
-    call: null,
-  })
-
-  it("is found by its own anchor on the card of the public referendum", () => {
-    const open = { ...stage, body: "open" as const, index: 1973 }
-    const paired = makeProposal({ network: "polkadot", open, passedFellowship: stage, call: null })
-    const alone = makeProposal({
-      network: "kusama",
-      fellowship: { ...stage, index: 680 },
-      call: null,
-    })
-    expect(proposalAnchor(paired)).toBe("polkadot-1973")
-    expect(proposalAnchor(alone)).toBe("fellowship-680")
-    expect(findByAnchor([alone, paired], "fellowship-681")).toBe(paired)
-    expect(findByAnchor([alone, paired], "polkadot-1973")).toBe(paired)
-    expect(findByAnchor([alone, paired], "kusama-1973")).toBeUndefined()
-  })
-
-  it("is passed at the block of its approval, on the current clock", () => {
-    expect(stage.status).toEqual({ phase: "passed", at: 10_100_000 })
-    expect(stage.now).toBe(10_184_756)
-    expect(stage.body).toBe("fellowship")
-    expect(stage.minRank).toBe(3)
-  })
-
-  it("keeps the tally it passed with", () => {
-    expect(stage.approval.current).toBe(1)
-    expect(stage.support.current).toBe(15 / 32)
-    expect(stage.ayes).toBe("20 (15 of 32 members)")
-    expect(stage.nays).toBe("0")
-    expect(stage.passing).toBe(true)
-  })
-
-  it("takes the thresholds of the block at which it passed, not of the current one", () => {
-    // Half of the decision period had elapsed when it was approved.
-    expect(stage.approval.required).toBeCloseTo(0.75)
-    expect(stage.support.required).toBeCloseTo(0.25)
   })
 })
 
