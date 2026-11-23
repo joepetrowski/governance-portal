@@ -1,19 +1,13 @@
 import { useEffect, useState } from "react"
 import { CHAINS, type Network, NETWORKS } from "../chains"
-import {
-  decisionDeposits,
-  followUp,
-  type FollowUpChoice,
-  followUpTx,
-  openedBy,
-} from "../gov/followup"
+import { decisionDeposits, type FollowUpChoice } from "../gov/followup"
 import type { Stage } from "../gov/load"
 import type { AccountStatus } from "../gov/votes"
-import { errorMessage } from "../util"
 import { type Account } from "../wallet"
 import { formatBalance, formatExact, parseBalance } from "./format"
-import { choice, type Submittable, useSubmit } from "./tx"
-import { TxStatus } from "./TxStatus"
+import { flowActive, startFlow, useFlow } from "./flows"
+import { FlowStatus } from "./FlowStatus"
+import { choice, type Submittable } from "./tx"
 import { ConvictionOptions } from "./VotePanel"
 import { useLockDays } from "../useLockDays"
 
@@ -24,17 +18,21 @@ const field =
 const EXPECTED_TRACK = { fellowship: "fellows", open: "whitelisted caller" }
 
 /**
- * The button that opens one or more referenda, with the choice to place the decision deposit and
- * to vote aye afterwards. Both are chosen by default.
+ * The form that opens one or more referenda, with the choice to place the decision deposit and to
+ * vote aye afterwards. Both are chosen by default.
  *
  * They take a second signature. The deposit and the vote name the referendum by its index, which
  * is known only when the submission is finalized. The page then reads the index from the events of
- * the submission, says what the second transaction does, and asks the wallet to sign it.
+ * the submission, says what the second transaction does, and asks the wallet to sign it. That is
+ * done by a flow, which goes on if this form leaves the page. See `startFlow`.
  *
- * `onDone` runs when no more is to come: after the second transaction is finalized or fails, or
- * after the submission if nothing was chosen. `onIncluded` runs when the submission is in a block.
+ * While the flow is under way, the form gives way to its progress.
  */
 export function OpenReferendum(props: {
+  /** Names what is opened, the same in every control that can open it. See `Flow.key`. */
+  flowKey: string
+  /** What is opened, in words, for when the progress is shown away from this form. */
+  title: string
   /** Whose referenda the transaction opens. */
   body: Stage["body"]
   /** The network whose chain hosts them. Fellowship referenda are on Polkadot. */
@@ -45,10 +43,13 @@ export function OpenReferendum(props: {
   count?: number
   /** What the submission itself reserves from the account, besides fees. */
   reserves?: bigint
+  /** The account that signs both transactions. */
   account: Account
+  /** What is known of that account, from which the form tells what it can afford. */
   status: AccountStatus | undefined
+  /** Builds the transaction that opens the referenda. */
   makeTx: () => Promise<Submittable>
-  onIncluded?: () => void
+  /** Runs when no more is to come: after the last transaction of the flow ends, well or not. */
   onDone: () => void
 }) {
   const { body, network, account, status } = props
@@ -62,10 +63,7 @@ export function OpenReferendum(props: {
   const [amount, setAmount] = useState("")
   const [conviction, setConviction] = useState(1)
   const lockDays = useLockDays(network)
-  const [making, setMaking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // What the second transaction does, as soon as that is known.
-  const [next, setNext] = useState<string | null>(null)
+  const flow = useFlow(props.flowKey)
 
   // The decision deposit of the track that these referenda are expected on. It only decides
   // whether the deposit is offered. What is placed is the deposit of the track that the chain
@@ -85,20 +83,6 @@ export function OpenReferendum(props: {
     }
   }, [body, network])
 
-  const second = useSubmit(props.onDone)
-  const first = useSubmit((events) => {
-    // These are the choices as they were when the submission was signed.
-    after(events).catch((e) => {
-      setError(errorMessage(e))
-      props.onDone()
-    })
-  })
-  const submitted = first.state.step === "included" || first.state.step === "finalized"
-  const { onIncluded } = props
-  useEffect(() => {
-    if (submitted) onIncluded?.()
-  }, [submitted, onIncluded])
-
   const unread = body === "open" && (status?.unread.includes(network) ?? true)
   const free = status && !unread ? status.free[chain] : null
   const needed = expected === null ? null : expected * BigInt(count) + (props.reserves ?? 0n)
@@ -106,7 +90,8 @@ export function OpenReferendum(props: {
   const deposit = wantDeposit && canDeposit
 
   const parsed = parseBalance(amount, network)
-  const balance = status?.balance[network] ?? 0n
+  // Without a status the balance is not known, which is not the same as having none.
+  const balance = status && !unread ? status.balance[network] : null
   const stakeProblem =
     body !== "open" || !wantAye
       ? null
@@ -114,142 +99,110 @@ export function OpenReferendum(props: {
         ? "Enter the amount to vote with, or clear the box."
         : parsed === null || parsed === 0n
           ? `Enter an amount in ${token}, with a period for decimals and no commas.`
-          : parsed > balance
-            ? `This account holds ${formatExact(balance, network)}.`
-            : null
-  const picked: FollowUpChoice = {
+          : balance === null
+            ? "The balance of this account could not be read. Clear the box, or try again shortly."
+            : parsed > balance
+              ? `This account holds ${formatExact(balance, network)}.`
+              : null
+  const choices: FollowUpChoice = {
     deposit,
     aye: wantAye,
     stake: body === "open" && parsed ? { amount: parsed, conviction } : undefined,
   }
 
-  async function after(events: unknown[]) {
-    const opened = openedBy(events, body, network)
-    const tracks = await decisionDeposits(body, network)
-    const plan = followUp(opened, picked, new Map(tracks.map((t) => [t.id, t.deposit])))
-    if (!plan) return props.onDone()
-    setNext(plan.description)
-    second.submit(followUpTx(plan.calls), account)
-  }
-
-  // The referenda are open whether or not the second transaction went through, so the page is
-  // told to read them when it fails as well.
-  const secondFailed = second.state.step === "failed"
-  const { onDone } = props
-  useEffect(() => {
-    if (secondFailed) onDone()
-  }, [secondFailed, onDone])
-
-  const busy = first.busy || second.busy || making
+  if (flowActive(flow) && flow) return <FlowStatus flow={flow} />
   return (
     <div className="mt-3">
-      {!submitted && (
-        <fieldset disabled={busy} className="space-y-1 text-sm">
-          <legend className="sr-only">
-            After the {referenda} {count === 1 ? "is" : "are"} open
-          </legend>
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={deposit}
-              disabled={!canDeposit}
-              onChange={(e) => setWantDeposit(e.target.checked)}
-            />
-            <span>
-              Place the decision deposit
-              {expected !== null &&
-                ` of ${formatBalance(expected * BigInt(count), network)}` +
-                  (count > 1 ? ` (${formatBalance(expected, network)} each)` : "")}
-              {!canDeposit && free !== null && (
-                <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                  The selected account has {formatBalance(free, network)} free on{" "}
-                  {CHAINS[chain].name}, which is not enough.
-                </span>
-              )}
-            </span>
-          </label>
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={wantAye}
-              onChange={(e) => setWantAye(e.target.checked)}
-            />
-            <span>Vote aye</span>
-          </label>
-          {body === "open" && wantAye && (
-            <div className="ml-6 flex flex-wrap items-center gap-2">
-              <label>
-                <span className="sr-only">Amount in {token}</span>
-                <input
-                  className={`${field} w-28`}
-                  inputMode="decimal"
-                  placeholder="Amount"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />{" "}
-                {token}
-              </label>
-              <label>
-                <span className="sr-only">Conviction</span>
-                <select
-                  className={field}
-                  value={conviction}
-                  onChange={(e) => setConviction(Number(e.target.value))}
-                >
-                  <ConvictionOptions lockDays={lockDays} />
-                </select>
-              </label>
-            </div>
-          )}
-          {(deposit || wantAye) && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {stakeProblem ??
-                `Your wallet asks for a second signature once the ${referenda} ${
-                  count === 1 ? "is" : "are"
-                } finalized, since ${count === 1 ? "its number is" : "their numbers are"} not known before.`}
-            </p>
-          )}
-        </fieldset>
-      )}
-      {!submitted && (
-        <button
-          type="button"
-          disabled={busy || stakeProblem !== null}
-          className={`mt-3 ${choice(true)}`}
-          onClick={() => {
-            setError(null)
-            setMaking(true)
-            props
-              .makeTx()
-              .then((tx) => first.submit(tx, account))
-              .catch((e) => setError(errorMessage(e)))
-              .finally(() => setMaking(false))
-          }}
-        >
-          {props.label}
-        </button>
-      )}
-      {making && (
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Building the transaction…</p>
-      )}
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      <TxStatus state={first.state} />
-      {next && (
-        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">Second transaction: {next}</p>
-      )}
-      <TxStatus state={second.state} />
-      {secondFailed && (
-        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-          The {referenda} {count === 1 ? "is" : "are"} open. The deposit and the vote can also be
-          made from {count === 1 ? "its card" : "their cards"} in the list.
-        </p>
-      )}
+      <fieldset className="space-y-1 text-sm">
+        <legend className="sr-only">
+          After the {referenda} {count === 1 ? "is" : "are"} open
+        </legend>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={deposit}
+            disabled={!canDeposit}
+            onChange={(e) => setWantDeposit(e.target.checked)}
+          />
+          <span>
+            Place the decision deposit
+            {expected !== null &&
+              ` of ${formatBalance(expected * BigInt(count), network)}` +
+                (count > 1 ? ` (${formatBalance(expected, network)} each)` : "")}
+            {!canDeposit && free !== null && (
+              <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+                The selected account has {formatBalance(free, network)} free on {CHAINS[chain].name}
+                , which is not enough.
+              </span>
+            )}
+          </span>
+        </label>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={wantAye}
+            onChange={(e) => setWantAye(e.target.checked)}
+          />
+          <span>Vote aye</span>
+        </label>
+        {body === "open" && wantAye && (
+          <div className="ml-6 flex flex-wrap items-center gap-2">
+            <label>
+              <span className="sr-only">Amount in {token}</span>
+              <input
+                className={`${field} w-28`}
+                inputMode="decimal"
+                placeholder="Amount"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />{" "}
+              {token}
+            </label>
+            <label>
+              <span className="sr-only">Conviction</span>
+              <select
+                className={field}
+                value={conviction}
+                onChange={(e) => setConviction(Number(e.target.value))}
+              >
+                <ConvictionOptions lockDays={lockDays} />
+              </select>
+            </label>
+          </div>
+        )}
+        {(deposit || wantAye) && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {stakeProblem ??
+              `Your wallet asks for a second signature once the ${referenda} ${
+                count === 1 ? "is" : "are"
+              } finalized, since ${count === 1 ? "its number is" : "their numbers are"} not known before.`}
+          </p>
+        )}
+      </fieldset>
+      <button
+        type="button"
+        disabled={stakeProblem !== null}
+        className={`mt-3 ${choice(true)}`}
+        onClick={() =>
+          // The flow takes the choices as they are now, and does nothing if one is under way.
+          startFlow({
+            key: props.flowKey,
+            title: props.title,
+            body,
+            network,
+            account,
+            makeTx: props.makeTx,
+            choice: choices,
+            onDone: props.onDone,
+          })
+        }
+      >
+        {props.label}
+      </button>
+      {/* An attempt that failed, above which the form is offered again. */}
+      {flow && <FlowStatus flow={flow} />}
     </div>
   )
 }

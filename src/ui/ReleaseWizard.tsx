@@ -22,6 +22,8 @@ import { CallTree } from "./CallTree"
 import { formatBalance, formatList } from "./format"
 import { Short } from "./Short"
 import { loadOpengov } from "./opengov"
+import { flowActive, flowSubmitted, useFlow } from "./flows"
+import { FlowStatus } from "./FlowStatus"
 import { OpenReferendum } from "./OpenReferendum"
 import { choice, type Submittable } from "./tx"
 import { errorMessage } from "../util"
@@ -56,9 +58,15 @@ const SentContext = createContext<{
 function SubmitStep(props: {
   title: string
   detail: string
-  /** Whose referenda it opens, on which network's chain, and how many if not one. */
+  /** Names what the step opens, the same in every control that can open it. See `Flow.key`. */
+  flowKey: string
+  /** What the step opens, in words, for when its progress is shown away from the step. */
+  flowTitle: string
+  /** Whose referenda it opens. */
   body: Stage["body"]
+  /** The network whose chain hosts them. */
   network: Network
+  /** How many referenda it opens. One if left out. */
   count?: number
   /** What the submission reserves from the account, besides fees. */
   reserves?: bigint
@@ -72,9 +80,11 @@ function SubmitStep(props: {
 }) {
   const wallet = useWallet()
   const account = wallet.selected
-  // Once it is in a block it must not be offered again, even before the list below shows it.
-  const [submitted, setSubmitted] = useState(false)
-  const included = useCallback(() => setSubmitted(true), [])
+  // A submission that is under way or went through is followed here, whatever else has changed:
+  // It must not be offered again, and what it asks the wallet to sign must stay on the page.
+  const flow = useFlow(props.flowKey)
+  const active = flowActive(flow)
+  const submitted = flowSubmitted(flow)
   const { markSent } = useContext(SentContext)
   const hashes = (props.whitelists ?? []).join(",")
   useEffect(() => {
@@ -84,13 +94,16 @@ function SubmitStep(props: {
     <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <h4 className="font-medium">{props.title}</h4>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{props.detail}</p>
-      {!submitted && props.blocked ? (
+      {active && flow ? (
+        <FlowStatus flow={flow} />
+      ) : props.blocked ? (
         <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">{props.blocked}</p>
       ) : !account ? (
         <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">Connect a wallet to submit.</p>
       ) : (
-        // It stays in place after the submission, to follow the deposit and the vote.
         <OpenReferendum
+          flowKey={props.flowKey}
+          title={props.flowTitle}
           body={props.body}
           network={props.network}
           count={props.count}
@@ -99,7 +112,6 @@ function SubmitStep(props: {
           account={account}
           status={props.status}
           makeTx={props.makeTx}
-          onIncluded={included}
           onDone={props.onSubmitted}
         />
       )}
@@ -174,6 +186,8 @@ function AllFellowship(props: {
   const wallet = useWallet()
   const status = props.statuses.find((s) => s.address === wallet.selected?.address)
   const { sent } = useContext(SentContext)
+  const flowKey = `fellowship:${props.builts.map((b) => b.proposal.hash).join("+")}`
+  const active = flowActive(useFlow(flowKey))
   const blocks = props.builts.map((b) =>
     fellowshipBlock(
       existingFor(b, props.snapshot.proposals),
@@ -182,13 +196,15 @@ function AllFellowship(props: {
       sent.has(b.proposal.hash),
     ),
   )
-  // If any of them is open already, the remaining one is submitted from its own section.
+  // If any of them is open already, the remaining one is submitted from its own section. A
+  // submission from this step that is under way stays in view, though its referenda are open.
   if (
     props.builts.length < 2 ||
-    props.builts.some((b) => {
-      const existing = existingFor(b, props.snapshot.proposals)
-      return existing?.fellowship || existing?.whitelist?.whitelisted
-    })
+    (!active &&
+      props.builts.some((b) => {
+        const existing = existingFor(b, props.snapshot.proposals)
+        return existing?.fellowship || existing?.whitelist?.whitelisted
+      }))
   )
     return null
   const names = props.builts.map((b) => NETWORKS[b.network].name)
@@ -200,6 +216,8 @@ function AllFellowship(props: {
         `On Collectives, in one transaction, for the upgrades of ${formatList(versions)}. It ` +
         "does the same as the Fellowship step of each network above, so use one or the other."
       }
+      flowKey={flowKey}
+      flowTitle={`Fellowship referenda for the upgrades of ${formatList(versions)}`}
       body="fellowship"
       network="polkadot"
       count={props.builts.length}
@@ -271,6 +289,8 @@ function Result(props: {
                 "over the bridge."
               : "On Collectives, for the Fellowship to whitelist the upgrade."
           }
+          flowKey={`fellowship:${built.proposal.hash}`}
+          flowTitle={`Fellowship referendum for the upgrade of ${NETWORKS[network].name} to ${built.tag}`}
           body="fellowship"
           network="polkadot"
           status={status}
@@ -285,6 +305,8 @@ function Result(props: {
             `On ${hub}, on the Whitelisted Caller track. ` +
             "Notes the preimage if it is not on chain yet."
           }
+          flowKey={`open:${network}:${built.proposal.hash}`}
+          flowTitle={`Public referendum for the upgrade of ${NETWORKS[network].name} to ${built.tag}`}
           body="open"
           network={network}
           reserves={built.submissionDeposit}

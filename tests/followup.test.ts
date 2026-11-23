@@ -75,20 +75,21 @@ describe("followUp", () => {
   })
 
   it("votes on a public referendum with the stake that was given, and not without one", () => {
-    const stake = { amount: 1_000_000_000_000n, conviction: 1 }
+    // The sentence gives the amounts in full, since it is what the account is asked to sign.
+    const stake = { amount: 12_345_000_000_000n, conviction: 1 }
     const plan = followUp([open], { deposit: true, aye: true, stake }, deposits)
     expect(plan?.calls).toEqual([
       { kind: "deposit", referendum: open },
       { kind: "openAye", referendum: open, stake },
     ])
     expect(plan?.description).toBe(
-      "Place the decision deposit of 10K DOT and vote aye with 100 DOT at 1x on public " +
+      "Place the decision deposit of 10,000 DOT and vote aye with 1,234.5 DOT at 1x on public " +
         "referendum #1974.",
     )
     const without = followUp([open], { deposit: true, aye: true }, deposits)
     expect(without?.calls).toEqual([{ kind: "deposit", referendum: open }])
     expect(without?.description).toBe(
-      "Place the decision deposit of 10K DOT on public referendum #1974.",
+      "Place the decision deposit of 10,000 DOT on public referendum #1974.",
     )
   })
 

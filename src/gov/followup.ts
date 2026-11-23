@@ -5,7 +5,7 @@
 // finalized submission reported.
 
 import { assetHubApi, collectivesApi, type Network } from "../chains"
-import { formatBalance, formatList } from "../ui/format"
+import { formatExact, formatList } from "../ui/format"
 import { type Stage, trackName } from "./load"
 import {
   CONVICTIONS,
@@ -62,7 +62,7 @@ export type FollowUpCall =
 
 /**
  * The calls that carry out a choice on the referenda that were opened, and a sentence that says
- * exactly what they do. `deposits` gives the decision deposit of each track, for the sentence.
+ * exactly what they do, with every amount in full. `deposits` gives the decision deposit of each track, for the sentence.
  * Null if nothing was chosen or nothing was opened. A public aye without a stake is left out.
  */
 export function followUp(
@@ -80,7 +80,7 @@ export function followUp(
       parts.push(
         amount === undefined
           ? "place the decision deposit"
-          : `place the decision deposit of ${formatBalance(amount, referendum.network)}`,
+          : `place the decision deposit of ${formatExact(amount, referendum.network)}`,
       )
     }
     if (choice.aye && referendum.body === "fellowship") {
@@ -91,7 +91,7 @@ export function followUp(
       calls.push({ kind: "openAye", referendum, stake: choice.stake })
       const { amount, conviction } = choice.stake
       parts.push(
-        `vote aye with ${formatBalance(amount, referendum.network)} at ${CONVICTIONS[conviction]}`,
+        `vote aye with ${formatExact(amount, referendum.network)} at ${CONVICTIONS[conviction]}`,
       )
     }
     if (parts.length === 0) continue

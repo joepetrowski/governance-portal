@@ -3,6 +3,7 @@ import type { Stage } from "../gov/load"
 import { type AccountStatus, decisionDepositTx } from "../gov/votes"
 import { useWallet } from "../wallet"
 import { formatBalance } from "./format"
+import { useDepositPending } from "./flows"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
 
@@ -17,6 +18,14 @@ export function DepositButton(props: {
   const { state, busy, submit } = useSubmit(props.onPlaced)
   const account = wallet.selected
   const status = props.statuses.find((s) => s.address === account?.address)
+  // A second deposit would fail, and take the vote that is batched with the first down with it.
+  const pending = useDepositPending(stage)
+  if (pending)
+    return (
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        Your second transaction is placing it.
+      </span>
+    )
   if (!account || !status) return null
 
   // The deposit is taken on the chain that hosts the referendum.

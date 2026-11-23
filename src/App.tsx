@@ -5,6 +5,7 @@ import { NamesContext } from "./names"
 import { needsCleanup } from "./gov/cleanup"
 import { CleanupPanel } from "./ui/CleanupPanel"
 import { formatTime } from "./ui/format"
+import { FlowPanel } from "./ui/FlowStatus"
 import { ProposalCard } from "./ui/ProposalCard"
 import { ReleaseWizard } from "./ui/ReleaseWizard"
 import { choice } from "./ui/tx"
@@ -117,6 +118,8 @@ export default function App() {
       {!snapshot && !error && (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Reading chain state…</p>
       )}
+
+      <FlowPanel />
 
       {snapshot && <ReleaseWizard snapshot={snapshot} statuses={statuses} onSubmitted={refresh} />}
 

@@ -2,6 +2,9 @@ import type { Proposal } from "../gov/load"
 import { FELLOWSHIP_SUBMIT_RANK, fellowshipCallsFor, fellowshipSubmitTx } from "../gov/release"
 import type { AccountStatus } from "../gov/votes"
 import { useWallet } from "../wallet"
+import { NETWORKS } from "../chains"
+import { flowActive, useFlow } from "./flows"
+import { FlowStatus } from "./FlowStatus"
 import { OpenReferendum } from "./OpenReferendum"
 import { loadOpengov } from "./opengov"
 
@@ -19,6 +22,11 @@ export function WhitelistButton(props: {
   const { proposal } = props
   const wallet = useWallet()
   const call = proposal.whitelist?.call
+  // The wizard opens the same referendum under the same key, so the two do not open it twice.
+  const flowKey = proposal.whitelist ? `fellowship:${proposal.whitelist.hash}` : ""
+  const flow = useFlow(flowKey)
+  // A submission that is under way is followed whatever else has changed.
+  if (flowActive(flow) && flow) return <FlowStatus flow={flow} />
   if (!call) return null
 
   const account = wallet.selected
@@ -33,6 +41,13 @@ export function WhitelistButton(props: {
 
   return (
     <OpenReferendum
+      flowKey={flowKey}
+      title={
+        "Fellowship referendum to whitelist the call of " +
+        (proposal.open
+          ? `${NETWORKS[proposal.network].name} referendum #${proposal.open.index}`
+          : `a ${NETWORKS[proposal.network].name} referendum`)
+      }
       body="fellowship"
       network="polkadot"
       label="Open Fellowship referendum"

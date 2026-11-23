@@ -49,6 +49,40 @@ export interface Submittable {
 }
 
 /**
+ * Follow a submitted transaction to finality, reporting each state to `report`. `onFinalized` runs
+ * once it is finalized, with the events that the transaction emitted. The connections stay open
+ * until the events end, also in a tab that is in the background.
+ */
+export function watchTx(
+  events: TxEvents,
+  report: (state: TxState) => void,
+  onFinalized: (events: unknown[]) => void,
+) {
+  // The events end by themselves, at finality or with an error.
+  const release = holdClients()
+  events.subscribe({
+    next: (event) => {
+      if (event.type === "broadcasted") report({ step: "broadcast" })
+      if (event.type !== "inBestBlock" && event.type !== "finalized") return
+      if (event.type === "finalized") release()
+      if (event.ok === false) {
+        report({
+          step: "failed",
+          reason: `Rejected by the chain: ${dispatchErrorName(event.dispatchError)}`,
+        })
+        return
+      }
+      report({ step: event.type === "finalized" ? "finalized" : "included" })
+      if (event.type === "finalized") onFinalized(event.events ?? [])
+    },
+    error: (e) => {
+      release()
+      report({ step: "failed", reason: errorMessage(e) })
+    },
+  })
+}
+
+/**
  * State and triggers for one transaction. `submit` signs with the account and follows the
  * transaction to finality. `follow` does the same for one that is already submitted, such as an
  * unsigned one. `onFinalized` runs once it is finalized, which is when
@@ -61,29 +95,7 @@ export function useSubmit(onFinalized: (events: unknown[]) => void) {
 
   const follow = (events: TxEvents) => {
     setState((current) => (current.step === "signing" ? current : { step: "broadcast" }))
-    // The events end by themselves, at finality or with an error. Until then the connections
-    // stay open, also in a tab that is in the background.
-    const release = holdClients()
-    events.subscribe({
-      next: (event) => {
-        if (event.type === "broadcasted") setState({ step: "broadcast" })
-        if (event.type !== "inBestBlock" && event.type !== "finalized") return
-        if (event.type === "finalized") release()
-        if (event.ok === false) {
-          setState({
-            step: "failed",
-            reason: `Rejected by the chain: ${dispatchErrorName(event.dispatchError)}`,
-          })
-          return
-        }
-        setState({ step: event.type === "finalized" ? "finalized" : "included" })
-        if (event.type === "finalized") onFinalized(event.events ?? [])
-      },
-      error: (e) => {
-        release()
-        setState({ step: "failed", reason: errorMessage(e) })
-      },
-    })
+    watchTx(events, setState, onFinalized)
   }
   const submit = (tx: Submittable, account: Account) => {
     setState({ step: "signing" })
