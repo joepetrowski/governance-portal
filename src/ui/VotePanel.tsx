@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react"
-import { type Network, NETWORKS } from "../chains"
+import { useState } from "react"
+import { NETWORKS } from "../chains"
 import type { Stage } from "../gov/load"
 import {
   type AccountStatus,
   CONVICTIONS,
   type Direction,
   fellowshipVoteTx,
-  loadLockDays,
   openVoteTx,
   stageKey,
 } from "../gov/votes"
@@ -14,6 +13,7 @@ import { type Account, useWallet } from "../wallet"
 import { formatExact, parseBalance, shortAddress } from "./format"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
+import { useLockDays } from "../useLockDays"
 
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -67,8 +67,15 @@ function FellowshipVote(props: {
   )
 }
 
-/** Lock durations per network, read once. */
-const lockDaysCache: Partial<Record<Network, Promise<number[]>>> = {}
+/** The choices of conviction, each with its lock once that is known. */
+export function ConvictionOptions({ lockDays }: { lockDays: number[] | null }) {
+  return CONVICTIONS.map((label, i) => (
+    <option key={label} value={i}>
+      {label}
+      {lockDays && (i === 0 ? ", no lock" : `, locked ${lockDays[i]} days`)}
+    </option>
+  ))
+}
 
 function OpenVote(props: {
   stage: Stage
@@ -86,12 +93,7 @@ function OpenVote(props: {
   const [chosen, setChosen] = useState<Direction | null>(null)
   const [amount, setAmount] = useState("")
   const [conviction, setConviction] = useState(1)
-  const [lockDays, setLockDays] = useState<number[] | null>(null)
-
-  useEffect(() => {
-    const cached = (lockDaysCache[network] ??= loadLockDays(network))
-    cached.then(setLockDays).catch(() => delete lockDaysCache[network])
-  }, [network])
+  const lockDays = useLockDays(network)
 
   const mine = status.votes[stageKey(stage)]
   if (mine?.type === "delegating") return null
@@ -150,12 +152,7 @@ function OpenVote(props: {
               value={conviction}
               onChange={(e) => setConviction(Number(e.target.value))}
             >
-              {CONVICTIONS.map((label, i) => (
-                <option key={label} value={i}>
-                  {label}
-                  {lockDays && (i === 0 ? ", no lock" : `, locked ${lockDays[i]} days`)}
-                </option>
-              ))}
+              <ConvictionOptions lockDays={lockDays} />
             </select>
           </label>
         )}

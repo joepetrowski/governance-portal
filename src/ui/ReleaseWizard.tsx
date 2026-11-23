@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 import { CHAINS, type ChainId, chainsOf, type Network, NETWORK_IDS, NETWORKS } from "../chains"
-import type { Proposal, Snapshot } from "../gov/load"
+import type { Proposal, Snapshot, Stage } from "../gov/load"
 import {
   type BuiltUpgrade,
   buildUpgrade,
@@ -22,8 +22,8 @@ import { CallTree } from "./CallTree"
 import { formatBalance, formatList } from "./format"
 import { Short } from "./Short"
 import { loadOpengov } from "./opengov"
-import { choice, type Submittable, useSubmit } from "./tx"
-import { TxStatus } from "./TxStatus"
+import { OpenReferendum } from "./OpenReferendum"
+import { choice, type Submittable } from "./tx"
 import { errorMessage } from "../util"
 
 const field =
@@ -56,20 +56,25 @@ const SentContext = createContext<{
 function SubmitStep(props: {
   title: string
   detail: string
+  /** Whose referenda it opens, on which network's chain, and how many if not one. */
+  body: Stage["body"]
+  network: Network
+  count?: number
+  /** What the submission reserves from the account, besides fees. */
+  reserves?: bigint
   /** Why it should not be submitted, if anything. */
   blocked: string | null
   /** For a Fellowship step, the hashes of the calls that its referenda whitelist. */
   whitelists?: string[]
+  status: AccountStatus | undefined
   makeTx: () => Promise<Submittable>
   onSubmitted: () => void
 }) {
   const wallet = useWallet()
-  const { state, busy, submit } = useSubmit(props.onSubmitted)
-  const [making, setMaking] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const account = wallet.selected
   // Once it is in a block it must not be offered again, even before the list below shows it.
-  const submitted = state.step === "included" || state.step === "finalized"
+  const [submitted, setSubmitted] = useState(false)
+  const included = useCallback(() => setSubmitted(true), [])
   const { markSent } = useContext(SentContext)
   const hashes = (props.whitelists ?? []).join(",")
   useEffect(() => {
@@ -79,34 +84,25 @@ function SubmitStep(props: {
     <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
       <h4 className="font-medium">{props.title}</h4>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{props.detail}</p>
-      {submitted ? null : props.blocked ? (
+      {!submitted && props.blocked ? (
         <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">{props.blocked}</p>
       ) : !account ? (
         <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">Connect a wallet to submit.</p>
       ) : (
-        <button
-          type="button"
-          disabled={busy || making}
-          className={`mt-3 ${choice(true)}`}
-          onClick={() => {
-            setError(null)
-            setMaking(true)
-            props
-              .makeTx()
-              .then((tx) => submit(tx, account))
-              .catch((e) => setError(errorMessage(e)))
-              .finally(() => setMaking(false))
-          }}
-        >
-          Submit
-        </button>
+        // It stays in place after the submission, to follow the deposit and the vote.
+        <OpenReferendum
+          body={props.body}
+          network={props.network}
+          count={props.count}
+          reserves={props.reserves}
+          label="Submit"
+          account={account}
+          status={props.status}
+          makeTx={props.makeTx}
+          onIncluded={included}
+          onDone={props.onSubmitted}
+        />
       )}
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      <TxStatus state={state} />
     </section>
   )
 }
@@ -204,6 +200,10 @@ function AllFellowship(props: {
         `On Collectives, in one transaction, for the upgrades of ${formatList(versions)}. It ` +
         "does the same as the Fellowship step of each network above, so use one or the other."
       }
+      body="fellowship"
+      network="polkadot"
+      count={props.builts.length}
+      status={status}
       blocked={blocks.find((b) => b !== null) ?? null}
       whitelists={props.builts.map((b) => b.proposal.hash)}
       makeTx={() => fellowshipSubmitAllTx(props.builts)}
@@ -271,6 +271,9 @@ function Result(props: {
                 "over the bridge."
               : "On Collectives, for the Fellowship to whitelist the upgrade."
           }
+          body="fellowship"
+          network="polkadot"
+          status={status}
           blocked={fellowshipBlocked}
           whitelists={[built.proposal.hash]}
           makeTx={() => fellowshipSubmitTx(built)}
@@ -282,6 +285,10 @@ function Result(props: {
             `On ${hub}, on the Whitelisted Caller track. ` +
             "Notes the preimage if it is not on chain yet."
           }
+          body="open"
+          network={network}
+          reserves={built.submissionDeposit}
+          status={status}
           blocked={publicBlocked}
           makeTx={() => publicSubmitTx(built)}
           onSubmitted={props.onSubmitted}
@@ -372,13 +379,14 @@ function NetworkUpgrade(props: {
 
   // A build that finishes after the release was changed belongs to a section that is gone, and
   // must not be reported as built.
+  // The flag is set again on every mount: In development, React mounts a component twice.
   const mounted = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true
+    return () => {
       mounted.current = false
-    },
-    [],
-  )
+    }
+  }, [])
 
   const build = async () => {
     setBuilt(null)

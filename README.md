@@ -12,6 +12,8 @@ The portal:
 - Lists active referenda and lets connected accounts vote on them.
 - Links related referenda, such as a Whitelisted Caller referendum and the Fellowship referendum
   that whitelists it.
+- Offers to place the decision deposit and vote aye when opening a referendum. Both are chosen by
+  default, and take a second signature once the referendum is finalized and its index is known.
 - Gives every card a link, such as `#polkadot-1973`, that opens the page on that referendum.
 - Keeps showing a Fellowship referendum after it has passed, with its final tally, while the public
   referendum that it whitelisted is open.

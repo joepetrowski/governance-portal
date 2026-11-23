@@ -29,7 +29,12 @@ function dispatchErrorName(error: unknown): string {
 export interface TxEvents {
   /** Listen to the events. An error means the transaction was not signed or not accepted. */
   subscribe: (observer: {
-    next: (event: { type: string; ok?: boolean; dispatchError?: unknown }) => void
+    next: (event: {
+      type: string
+      ok?: boolean
+      dispatchError?: unknown
+      events?: unknown[]
+    }) => void
     error: (e: unknown) => void
   }) => unknown
 }
@@ -47,9 +52,10 @@ export interface Submittable {
  * State and triggers for one transaction. `submit` signs with the account and follows the
  * transaction to finality. `follow` does the same for one that is already submitted, such as an
  * unsigned one. `onFinalized` runs once it is finalized, which is when
- * chain state read by this page shows its effect.
+ * chain state read by this page shows its effect. It is given the events that the transaction
+ * emitted.
  */
-export function useSubmit(onFinalized: () => void) {
+export function useSubmit(onFinalized: (events: unknown[]) => void) {
   const [state, setState] = useState<TxState>({ step: "idle" })
   const busy = state.step === "signing" || state.step === "broadcast" || state.step === "included"
 
@@ -71,7 +77,7 @@ export function useSubmit(onFinalized: () => void) {
           return
         }
         setState({ step: event.type === "finalized" ? "finalized" : "included" })
-        if (event.type === "finalized") onFinalized()
+        if (event.type === "finalized") onFinalized(event.events ?? [])
       },
       error: (e) => {
         release()

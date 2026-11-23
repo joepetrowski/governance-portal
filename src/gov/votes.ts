@@ -180,7 +180,7 @@ export interface OpenVote {
 }
 
 /** The transaction that casts or replaces a vote on a public referendum, on its Asset Hub. */
-export function openVoteTx(stage: Stage, vote: OpenVote) {
+export function openVoteTx(stage: Pick<Stage, "network" | "index">, vote: OpenVote) {
   const accountVote =
     vote.direction === "abstain"
       ? ConvictionVotingVoteAccountVote.SplitAbstain({ aye: 0n, nay: 0n, abstain: vote.amount })
@@ -195,12 +195,12 @@ export function openVoteTx(stage: Stage, vote: OpenVote) {
 }
 
 /** The transaction that casts or replaces a Fellowship vote, on Collectives. */
-export function fellowshipVoteTx(stage: Stage, aye: boolean) {
+export function fellowshipVoteTx(stage: Pick<Stage, "index">, aye: boolean) {
   return collectivesApi().tx.FellowshipCollective.vote({ poll: stage.index, aye })
 }
 
 /** Anyone may place the decision deposit; it is returned after the referendum ends. */
-export function decisionDepositTx(stage: Stage) {
+export function decisionDepositTx(stage: Pick<Stage, "body" | "network" | "index">) {
   return stage.body === "fellowship"
     ? collectivesApi().tx.FellowshipReferenda.place_decision_deposit({ index: stage.index })
     : assetHubApi(stage.network).tx.Referenda.place_decision_deposit({ index: stage.index })
