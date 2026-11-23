@@ -38,6 +38,7 @@ export type StageStatus =
   | { phase: "queued" }
   | { phase: "deciding"; since: number; endsAt: number; passesAt: number | null }
   | { phase: "confirming"; since: number; endsAt: number }
+  | { phase: "passed"; at: number }
 
 /** One referendum, of the Fellowship or the public, as a step in a proposal's path to enactment. */
 export interface Stage {
@@ -60,7 +61,10 @@ export interface Stage {
   submitter: string
   /** Block at which the referendum was submitted. */
   submitted: number
-  /** Current phase and its deadlines. */
+  /**
+   * Current phase and its deadlines. In a referendum that has passed, the tally and the thresholds
+   * are those of the block at which it passed.
+   */
   status: StageStatus
   /** Share of ayes among ayes and nays, as fractions in [0, 1]. Null when nobody has voted. */
   approval: { current: number | null; required: number }
@@ -119,6 +123,12 @@ export interface Proposal {
    * not zero, since `call` does not cover it.
    */
   fellowshipExtra: number
+  /**
+   * The Fellowship referendum that whitelisted the call, when it has passed and could still be
+   * read. Its status is "passed". Set only when the call is whitelisted and `fellowship` is not
+   * set.
+   */
+  passedFellowship?: Stage
   /** The public referendum, if one is open. */
   open?: Stage
   /** Present when the proposal dispatches (or whitelists) a call through the whitelist. */
@@ -167,29 +177,56 @@ export interface Snapshot {
   loadedAt: number
 }
 
-type Bounded =
+/** A call as a referendum holds it. */
+export type Bounded =
   | { type: "Legacy"; value: unknown }
   | { type: "Inline"; value: Uint8Array }
   | { type: "Lookup"; value: { hash: string; len: number } }
 
-interface TrackInfo {
+/** What the portal uses of a track, in the shape that `pallet-referenda` gives it. */
+export interface TrackInfo {
+  /** Name of the track as stored, such as "whitelisted_caller". */
   name: string
+  /** Blocks between submission and the earliest start of the decision. */
   prepare_period: number
+  /** Blocks that the decision may take. */
   decision_period: number
+  /** Blocks that a referendum must keep passing before it is approved. */
   confirm_period: number
+  /** The decision deposit that the track requires. */
   decision_deposit: bigint
+  /** The approval required over the decision period. */
   min_approval: Curve
+  /** The support required over the decision period. */
   min_support: Curve
 }
 
-interface Ongoing {
+/** What the portal uses of an ongoing referendum, in the shape that `pallet-referenda` stores it. */
+export interface Ongoing {
+  /** ID of the track. */
   track: number
+  /** The call, inline or by the hash and length of its preimage. */
   proposal: Bounded
+  /** Block at which the referendum was submitted. */
   submitted: number
+  /** Who submitted it. */
   submission_deposit: { who: string }
+  /** The decision deposit, once placed. */
   decision_deposit?: { who: string; amount: bigint }
+  /** When the decision began, and when the confirmation ends if one is under way. */
   deciding?: { since: number; confirming?: number }
+  /** Whether it waits in the queue of a full track. */
   in_queue: boolean
+}
+
+/** The tally of a Fellowship referendum: members who voted aye, and votes weighted by rank. */
+export interface FellowshipTally {
+  /** Members who voted aye, each counted once. */
+  bare_ayes: number
+  /** Aye votes, weighted by rank. */
+  ayes: number
+  /** Nay votes, weighted by rank. */
+  nays: number
 }
 
 /** A track name as stored on chain, such as "whitelisted_caller", in readable form. */
@@ -398,7 +435,27 @@ async function loadOpenStages(network: Network): Promise<Stage[]> {
   return (await Promise.all(stages)).filter((s) => s !== null).reverse()
 }
 
-async function loadFellowshipStages(skip: Network[]): Promise<Stage[]> {
+/** A Fellowship tally as a stage shows it. `eligible` is how many members may vote on the track. */
+const fellowshipTally = ({ bare_ayes, ayes, nays }: FellowshipTally, eligible: number) => ({
+  approval: ayes + nays === 0 ? null : ayes / (ayes + nays),
+  support: eligible === 0 ? 0 : bare_ayes / eligible,
+  ayes: `${ayes} (${bare_ayes} of ${eligible} members)`,
+  nays: String(nays),
+})
+
+/** One read of the Fellowship's referenda. */
+interface FellowshipRead {
+  /** The ongoing referenda. */
+  stages: Stage[]
+  /** The approved referenda, with the block at which each was approved. */
+  approved: { index: number; since: number }[]
+  /** The finalized Collectives block of the read. */
+  now: number
+  /** The Fellowship's tracks by ID. */
+  tracks: Map<number, TrackInfo>
+}
+
+async function loadFellowshipStages(skip: Network[]): Promise<FellowshipRead> {
   const api = collectivesApi()
   const [entries, tracks, block, memberCounts] = await Promise.all([
     api.query.FellowshipReferenda.ReferendumInfoFor.getEntries(),
@@ -414,15 +471,12 @@ async function loadFellowshipStages(skip: Network[]): Promise<Stage[]> {
 
   const stages = entries.map(async ({ keyArgs, value }): Promise<Stage | null> => {
     if (value.type !== "Ongoing") return null
-    const info = value.value as unknown as Ongoing & {
-      tally: { bare_ayes: number; ayes: number; nays: number }
-    }
+    const info = value.value as unknown as Ongoing & { tally: FellowshipTally }
     const track = trackInfo.get(info.track)
     if (!track) return null
     const bytes = await proposalBytes(info.proposal, (key) =>
       api.query.Preimage.PreimageFor.getValue(key),
     )
-    const { bare_ayes, ayes, nays } = info.tally
     const eligible = membersAtRank.get(fellowshipMinRank(info.track)) ?? 0
     return buildStage(
       "polkadot",
@@ -431,16 +485,119 @@ async function loadFellowshipStages(skip: Network[]): Promise<Stage[]> {
       info,
       track,
       { now: block, blockMs: COLLECTIVES_BLOCK_MS },
-      {
-        approval: ayes + nays === 0 ? null : ayes / (ayes + nays),
-        support: eligible === 0 ? 0 : bare_ayes / eligible,
-        ayes: `${ayes} (${bare_ayes} of ${eligible} members)`,
-        nays: String(nays),
-      },
+      fellowshipTally(info.tally, eligible),
       bytes ? await decodeCall({ id: "collectives" }, bytes, skip) : null,
     )
   })
-  return (await Promise.all(stages)).filter((s) => s !== null)
+  const approved = entries.flatMap(({ keyArgs, value }) =>
+    // An approved referendum holds the block of its approval, and then its deposits.
+    value.type === "Approved" ? [{ index: keyArgs[0], since: value.value[0] }] : [],
+  )
+  return {
+    stages: (await Promise.all(stages)).filter((s) => s !== null),
+    approved,
+    now: block,
+    tracks: trackInfo,
+  }
+}
+
+/**
+ * A Fellowship referendum that has passed, as a stage. `info` is the referendum as it was in the
+ * block before `since`, the block at which it was approved, and `eligible` is how many members
+ * could vote on its track then. The chain approves a referendum before anything else happens in a
+ * block, so that tally is the one it passed with. The thresholds are those of block `since`.
+ */
+export function passedFellowshipStage(parts: {
+  index: number
+  info: Ongoing & { tally: FellowshipTally }
+  track: TrackInfo
+  eligible: number
+  since: number
+  /** The current Collectives block. */
+  now: number
+  call: CallNode | null
+}): Stage {
+  const { info, since } = parts
+  const stage = buildStage(
+    "polkadot",
+    "fellowship",
+    parts.index,
+    info,
+    parts.track,
+    { now: since, blockMs: COLLECTIVES_BLOCK_MS },
+    fellowshipTally(info.tally, parts.eligible),
+    parts.call,
+  )
+  return { ...stage, now: parts.now, status: { phase: "passed", at: since } }
+}
+
+/**
+ * How far back to look for the Fellowship referendum that whitelisted a call, in Collectives
+ * blocks: 60 days. A public referendum on the whitelisted caller track can stay open for six weeks.
+ */
+const PASSED_LOOKBACK = (60 * 86_400_000) / COLLECTIVES_BLOCK_MS
+/** Passed Fellowship referenda read at a time when looking for the one that whitelisted a call. */
+const PASSED_CHUNK = 8
+
+/**
+ * Read a Fellowship referendum that was approved at block `since` as it was in the block before,
+ * when it still held its call and tally. Null if it was not ongoing then. Fails if the node does
+ * not keep state that old.
+ */
+async function readPassedStage(
+  read: FellowshipRead,
+  { index, since }: { index: number; since: number },
+  skip: Network[],
+): Promise<Stage | null> {
+  const api = collectivesApi()
+  // The typed API reads at a block hash, and gives no way to find the hash of an old block.
+  const hashes = await getClient("collectives")._request<string[]>("archive_v1_hashByHeight", [
+    since - 1,
+  ])
+  if (hashes.length !== 1) return null
+  const at = { at: hashes[0] }
+  // Storage reads: No runtime API or view function gives a referendum, its preimage, or the
+  // member count.
+  const value = await api.query.FellowshipReferenda.ReferendumInfoFor.getValue(index, at)
+  if (value?.type !== "Ongoing") return null
+  const info = value.value as unknown as Ongoing & { tally: FellowshipTally }
+  const track = read.tracks.get(info.track)
+  if (!track) return null
+  const [bytes, eligible] = await Promise.all([
+    proposalBytes(info.proposal, (key) => api.query.Preimage.PreimageFor.getValue(key, at)),
+    api.query.FellowshipCollective.MemberCount.getValue(fellowshipMinRank(info.track), at),
+  ])
+  const call = bytes ? await decodeCall({ id: "collectives" }, bytes, skip) : null
+  return passedFellowshipStage({ index, info, track, eligible, since, now: read.now, call })
+}
+
+/**
+ * The passed Fellowship referenda that whitelisted the calls in `wanted`, keyed like `wanted` by
+ * network and hash. Recently approved referenda are read from the newest down until every call is
+ * found. A referendum that cannot be read is left out, so a call may be missing from the result.
+ */
+async function passedWhitelisters(
+  read: FellowshipRead,
+  wanted: Set<string>,
+  skip: Network[],
+): Promise<Map<string, Stage>> {
+  const found = new Map<string, Stage>()
+  const recent = read.approved
+    .filter((a) => a.since >= read.now - PASSED_LOOKBACK)
+    .sort((a, b) => b.since - a.since)
+  for (let i = 0; i < recent.length && found.size < wanted.size; i += PASSED_CHUNK) {
+    const stages = await Promise.all(
+      recent
+        .slice(i, i + PASSED_CHUNK)
+        .map((a) => orNothing(readPassedStage(read, a, skip), NETWORK_DEADLINE_MS)),
+    )
+    for (const stage of stages)
+      for (const request of stage ? whitelistRequests(stage) : []) {
+        const key = `${request.network}:${request.hash}`
+        if (stage && wanted.has(key) && !found.has(key)) found.set(key, stage)
+      }
+  }
+  return found
 }
 
 async function proposalBytes(
@@ -572,6 +729,7 @@ function describe(call: CallNode | null): string {
 export function makeProposal(parts: {
   network: Network
   fellowship?: Stage
+  passedFellowship?: Stage
   open?: Stage
   whitelist?: Proposal["whitelist"]
   /** See `Proposal.fellowshipExtra`. Zero if left out. */
@@ -616,6 +774,7 @@ export function makeProposal(parts: {
     title,
     kind: upgrades.length > 0 ? "upgrade" : parts.whitelist ? "whitelist" : "other",
     fellowship: parts.fellowship,
+    passedFellowship: parts.passedFellowship,
     fellowshipExtra: parts.fellowshipExtra ?? 0,
     open: parts.open,
     whitelist: parts.whitelist,
@@ -665,7 +824,7 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
   const pending = NETWORK_IDS.filter((n) => n !== "polkadot" && !networks.includes(n))
   const included = NETWORK_IDS.filter((n) => !pending.includes(n))
   const unreachable: Network[] = []
-  const [fellowship, ...openByNetwork] = await Promise.all([
+  const [fellowshipRead, ...openByNetwork] = await Promise.all([
     loadFellowshipStages(pending),
     ...included.map((network) =>
       // A network other than Polkadot that does not answer in time is reported as unreachable,
@@ -681,6 +840,7 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
     ),
   ])
 
+  const fellowship = fellowshipRead.stages
   const fellowshipUncertain = fellowship.some(
     (stage) => !stage.call || [...walk(stage.call)].some((n) => n.undecoded),
   )
@@ -692,17 +852,34 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
     for (const request of whitelistRequests(stage))
       if (request.network) requests.set(`${request.network}:${request.hash}`, stage)
 
+  // What each public referendum dispatches through the whitelist, and whether it is whitelisted.
+  const opens = await Promise.all(
+    openByNetwork.flat().map(async (stage) => {
+      const dispatch = whitelistDispatch(stage)
+      const key = dispatch && `${stage.network}:${dispatch.hash}`
+      const whitelisted = dispatch ? await isWhitelisted(stage.network, dispatch.hash) : null
+      return { stage, dispatch, key, partner: key ? requests.get(key) : undefined, whitelisted }
+    }),
+  )
+  // A whitelisted call with no open Fellowship referendum was whitelisted by one that has passed.
+  const wanted = new Set(
+    opens.flatMap((o) => (o.key && o.whitelisted && !o.partner ? [o.key] : [])),
+  )
+  const passed =
+    wanted.size > 0
+      ? await passedWhitelisters(fellowshipRead, wanted, pending).catch(
+          () => new Map<string, Stage>(),
+        )
+      : new Map<string, Stage>()
+
   const proposals: Proposal[] = []
-  for (const stage of openByNetwork.flat()) {
+  for (const { stage, dispatch, key, partner, whitelisted } of opens) {
     const { network } = stage
-    const dispatch = whitelistDispatch(stage)
-    if (!dispatch) {
+    if (!dispatch || !key) {
       proposals.push(makeProposal({ network, open: stage, call: stage.call }))
       continue
     }
-    const partner = requests.get(`${network}:${dispatch.hash}`)
     if (partner) unpaired.delete(partner)
-    const whitelisted = await isWhitelisted(network, dispatch.hash)
     // A referendum that names the call by hash alone shows the call if its preimage is on chain.
     const found =
       dispatch.inner === null && dispatch.len !== undefined
@@ -713,6 +890,7 @@ export async function loadSnapshot(networks: Network[] = NETWORK_IDS): Promise<S
         network,
         open: stage,
         fellowship: partner,
+        passedFellowship: partner || !whitelisted ? undefined : passed.get(key),
         fellowshipExtra: partner
           ? effectsBesidesWhitelist(partner.call, network, dispatch.hash)
           : undefined,

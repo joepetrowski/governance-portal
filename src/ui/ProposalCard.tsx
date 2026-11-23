@@ -34,8 +34,17 @@ function FellowshipStage({ proposal, fellowshipUncertain, statuses, onVoted }: P
       </StagePanel>
     )
   if (!proposal.whitelist) return null
+  if (proposal.passedFellowship)
+    return <StagePanel stage={proposal.passedFellowship} statusNote="The call is whitelisted" />
+  // The referendum that whitelisted the call could not be found or read. Only that the call is
+  // whitelisted is known, so the note claims no more than that.
   if (proposal.whitelist.whitelisted)
-    return <StageNote title="Fellowship">The Fellowship has whitelisted this call.</StageNote>
+    return (
+      <StageNote title="Fellowship" badge="Whitelisted">
+        The call is on the whitelist. The Fellowship referendum that whitelisted it could not be
+        found.
+      </StageNote>
+    )
   if (proposal.whitelist.whitelisted === null)
     return (
       <StageNote title="Fellowship">

@@ -7,6 +7,8 @@ function statusLine(stage: Stage): { label: string; detail: string } {
   const { status, now, blockMs } = stage
   const until = (block: number) => duration(block - now, blockMs)
   switch (status.phase) {
+    case "passed":
+      return { label: "Passed", detail: `${duration(now - status.at, blockMs)} ago` }
     case "awaitingDeposit":
       return {
         label: "Waiting for decision deposit",
@@ -34,8 +36,10 @@ function statusLine(stage: Stage): { label: string; detail: string } {
   }
 }
 
-function Meter(props: { label: string; current: number | null; required: number }) {
+/** `past` is set for a referendum that has ended, whose threshold is then no longer in force. */
+function Meter(props: { label: string; current: number | null; required: number; past?: boolean }) {
   const { label, current, required } = props
+  const needs = props.past ? "needed" : "needs"
   const met = current !== null && current >= required
   const shown = current === null ? "no votes" : percent(current)
   return (
@@ -48,7 +52,10 @@ function Meter(props: { label: string; current: number | null; required: number 
           >
             {shown}
           </span>
-          <span className="text-zinc-500 dark:text-zinc-400"> · needs {percent(required)}</span>
+          <span className="text-zinc-500 dark:text-zinc-400">
+            {" "}
+            · {needs} {percent(required)}
+          </span>
         </span>
       </div>
       <div
@@ -57,7 +64,7 @@ function Meter(props: { label: string; current: number | null; required: number 
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(Math.min(1, current ?? 0) * 100)}
-        aria-valuetext={`${shown}, needs ${percent(required)}`}
+        aria-valuetext={`${shown}, ${needs} ${percent(required)}`}
         className="relative mt-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800"
       >
         <div
@@ -126,17 +133,37 @@ function DepositRow({ stage, action }: { stage: Stage; action?: ReactNode }) {
   )
 }
 
+/** The label of a status. Green marks one that is passing or has passed. */
+function Badge(props: { green: boolean; children: string }) {
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+        props.green
+          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+          : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+      }`}
+    >
+      {props.children}
+    </span>
+  )
+}
+
 /**
  * One referendum: status, approval and support against their thresholds, time elapsed, and decision
- * deposit. `children` go below, which is where the vote controls are placed.
+ * deposit. `children` go below, which is where the vote controls are placed. A referendum that has
+ * passed shows its final tally, and no deposit. `statusNote` is added to the status line.
  */
 export function StagePanel(props: {
   stage: Stage
+  statusNote?: string
   depositAction?: ReactNode
   children?: ReactNode
 }) {
   const { stage, children } = props
-  const { label, detail } = statusLine(stage)
+  const status = statusLine(stage)
+  const label = status.label
+  const detail = props.statusNote ? `${status.detail} · ${props.statusNote}` : status.detail
+  const passed = stage.status.phase === "passed"
   const heading = stage.body === "fellowship" ? "Fellowship referendum" : "Public referendum"
   return (
     <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -147,25 +174,21 @@ export function StagePanel(props: {
         <span className="text-sm text-zinc-500 dark:text-zinc-400">{stage.track} track</span>
       </header>
       <p className="mt-2 text-sm">
-        <span
-          className={`mr-2 rounded px-1.5 py-0.5 text-xs font-medium ${
-            stage.passing || stage.status.phase === "confirming"
-              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-              : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-          }`}
-        >
-          {label}
+        <span className="mr-2">
+          <Badge green={passed || stage.passing || stage.status.phase === "confirming"}>
+            {label}
+          </Badge>
         </span>
         {detail}
       </p>
       <div className="mt-4 space-y-3">
-        <Meter label="Approval" {...stage.approval} />
-        <Meter label="Support" {...stage.support} />
+        <Meter label="Approval" {...stage.approval} past={passed} />
+        <Meter label="Support" {...stage.support} past={passed} />
         <TimeBar stage={stage} />
       </div>
-      <DepositRow stage={stage} action={props.depositAction} />
+      {!passed && <DepositRow stage={stage} action={props.depositAction} />}
       <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
+        {passed && "Final tally: "}Aye {stage.ayes} · Nay {stage.nays} · submitted by{" "}
         <AccountName address={stage.submitter} network={stage.network} />
       </p>
       {children}
@@ -173,11 +196,22 @@ export function StagePanel(props: {
   )
 }
 
-/** Shown in place of a stage that has no active referendum. `action` goes below the text. */
-export function StageNote(props: { title: string; children: string; action?: ReactNode }) {
+/**
+ * Shown in place of a stage that has no active referendum. `badge` is a green label beside the
+ * title, and `action` goes below the text.
+ */
+export function StageNote(props: {
+  title: string
+  badge?: string
+  children: string
+  action?: ReactNode
+}) {
   return (
     <section className="rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
-      <h3 className="font-medium">{props.title}</h3>
+      <header className="flex flex-wrap items-center justify-between gap-x-3">
+        <h3 className="font-medium">{props.title}</h3>
+        {props.badge && <Badge green>{props.badge}</Badge>}
+      </header>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{props.children}</p>
       {props.action}
     </section>

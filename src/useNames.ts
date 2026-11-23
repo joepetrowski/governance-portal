@@ -27,7 +27,7 @@ export function useNames(snapshot: Snapshot | null): Names {
     for (const network of NETWORK_IDS) {
       const done = read.current[network]
       const wanted = snapshot.proposals
-        .flatMap((p) => [p.fellowship, p.open])
+        .flatMap((p) => [p.fellowship, p.passedFellowship, p.open])
         .filter((stage) => stage?.network === network)
         .flatMap((stage) => [stage?.submitter, stage?.deposit.placed?.who])
         .filter((address): address is string => !!address)

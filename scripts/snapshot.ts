@@ -6,7 +6,7 @@ const snap = await loadSnapshot()
 for (const p of snap.proposals) {
   console.log(`\n== [${p.kind}] ${p.title}  (${p.id})`)
   if (p.whitelist) console.log("   whitelist", p.whitelist)
-  for (const s of [p.fellowship, p.open]) {
+  for (const s of [p.fellowship, p.passedFellowship, p.open]) {
     if (!s) continue
     console.log(
       `   ${s.body} #${s.index} track=${s.track} status=${JSON.stringify(s.status)} now=${s.now}`,
