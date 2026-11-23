@@ -8,8 +8,15 @@ vi.mock("../src/chains", async (original) => ({
 }))
 
 const { decodeCall } = await import("../src/gov/decode")
-const { effectsBesidesWhitelist, fellowshipMinRank, makeProposal, passedFellowshipStage } =
-  await import("../src/gov/load")
+const {
+  effectsBesidesWhitelist,
+  fellowshipMinRank,
+  findByAnchor,
+  makeProposal,
+  parseAnchor,
+  passedFellowshipStage,
+  proposalAnchor,
+} = await import("../src/gov/load")
 const { parseReleaseHashes, upgradeVersion } = await import("../src/gov/versions")
 
 const proposalOf = async (hex: string, chain: "assetHub" | "kusamaAssetHub" = "assetHub") => {
@@ -174,6 +181,21 @@ describe("passedFellowshipStage", () => {
     call: null,
   })
 
+  it("is found by its own anchor on the card of the public referendum", () => {
+    const open = { ...stage, body: "open" as const, index: 1973 }
+    const paired = makeProposal({ network: "polkadot", open, passedFellowship: stage, call: null })
+    const alone = makeProposal({
+      network: "kusama",
+      fellowship: { ...stage, index: 680 },
+      call: null,
+    })
+    expect(proposalAnchor(paired)).toBe("polkadot-1973")
+    expect(proposalAnchor(alone)).toBe("fellowship-680")
+    expect(findByAnchor([alone, paired], "fellowship-681")).toBe(paired)
+    expect(findByAnchor([alone, paired], "polkadot-1973")).toBe(paired)
+    expect(findByAnchor([alone, paired], "kusama-1973")).toBeUndefined()
+  })
+
   it("is passed at the block of its approval, on the current clock", () => {
     expect(stage.status).toEqual({ phase: "passed", at: 10_100_000 })
     expect(stage.now).toBe(10_184_756)
@@ -193,5 +215,18 @@ describe("passedFellowshipStage", () => {
     // Half of the decision period had elapsed when it was approved.
     expect(stage.approval.required).toBeCloseTo(0.75)
     expect(stage.support.required).toBeCloseTo(0.25)
+  })
+})
+
+describe("parseAnchor", () => {
+  it("reads a network or the Fellowship, and an index", () => {
+    expect(parseAnchor("polkadot-1973")).toEqual({ where: "polkadot", index: 1973 })
+    expect(parseAnchor("kusama-679")).toEqual({ where: "kusama", index: 679 })
+    expect(parseAnchor("fellowship-681")).toEqual({ where: "fellowship", index: 681 })
+  })
+
+  it("rejects anything else that the address of the page may hold", () => {
+    for (const text of ["", "polkadot", "polkadot-", "westend-1", "polkadot-1x", "polkadot--1"])
+      expect(parseAnchor(text)).toBeNull()
   })
 })

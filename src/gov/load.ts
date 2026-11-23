@@ -156,6 +156,35 @@ export interface Proposal {
   call: CallNode | null
 }
 
+/**
+ * The name by which a referendum is linked to in the address of the page, such as "polkadot-1973",
+ * "kusama-679", or "fellowship-681". It does not depend on what the referendum is paired with, so a
+ * link keeps working when a Fellowship referendum passes while its public one is open.
+ */
+export const stageAnchor = (stage: Pick<Stage, "network" | "body" | "index">) =>
+  `${stage.body === "fellowship" ? "fellowship" : stage.network}-${stage.index}`
+
+const stagesOf = (p: Proposal) => [p.open, p.fellowship, p.passedFellowship].filter((s) => !!s)
+
+/** The anchor of a proposal's card: that of its public referendum, or else of its Fellowship one. */
+export const proposalAnchor = (proposal: Proposal) => stagesOf(proposal).map(stageAnchor)[0] ?? ""
+
+/** The proposal with a referendum of the given anchor, whichever of its referenda that is. */
+export const findByAnchor = (proposals: Proposal[], anchor: string) =>
+  proposals.find((p) => stagesOf(p).some((s) => stageAnchor(s) === anchor))
+
+/**
+ * What an anchor names: a body, or a network for a public referendum, and an index. Null if it is
+ * not an anchor, which any text in the address of the page may be.
+ */
+export function parseAnchor(
+  anchor: string,
+): { where: Network | "fellowship"; index: number } | null {
+  const match = /^([a-z]+)-(\d{1,9})$/.exec(anchor)
+  const where = [...NETWORK_IDS, "fellowship" as const].find((w) => w === match?.[1])
+  return match && where ? { where, index: Number(match[2]) } : null
+}
+
 /** All open proposals as of one read of chain state. */
 export interface Snapshot {
   /** Proposals, with upgrades and other whitelisted calls first. */

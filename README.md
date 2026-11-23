@@ -12,6 +12,7 @@ The portal:
 - Lists active referenda and lets connected accounts vote on them.
 - Links related referenda, such as a Whitelisted Caller referendum and the Fellowship referendum
   that whitelists it.
+- Gives every card a link, such as `#polkadot-1973`, that opens the page on that referendum.
 - Keeps showing a Fellowship referendum after it has passed, with its final tally, while the public
   referendum that it whitelisted is open.
 - Builds system upgrade proposals from a Fellowship release in a release wizard, using

@@ -1,5 +1,6 @@
+import { useState } from "react"
 import { NETWORKS } from "../chains"
-import type { Proposal } from "../gov/load"
+import { type Proposal, proposalAnchor } from "../gov/load"
 import { type ReleaseHashes, upgradeVersion } from "../gov/versions"
 import type { AccountStatus } from "../gov/votes"
 import { CallTree } from "./CallTree"
@@ -18,7 +19,34 @@ interface Props {
   /** Runtime hashes of recent releases, by which an upgrade's version is recognized. */
   releaseHashes: ReleaseHashes
   statuses: AccountStatus[]
+  /** Whether the address of the page links to this card, which then stands out. */
+  linked: boolean
   onVoted: () => void
+}
+
+/**
+ * A link to the card. Following it puts the card in the address of the page, and copies that
+ * address without the release wizard's selection, which is no part of a link to a referendum.
+ */
+function CardLink({ anchor }: { anchor: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <a
+      href={`#${anchor}`}
+      className="text-xs font-medium text-zinc-600 underline dark:text-zinc-400"
+      onClick={() => {
+        const url = new URL(window.location.href)
+        url.search = ""
+        url.hash = anchor
+        navigator.clipboard
+          .writeText(url.toString())
+          .then(() => setCopied(true))
+          .catch(() => setCopied(false))
+      }}
+    >
+      <span role="status">{copied ? "Link copied" : "Copy link"}</span>
+    </a>
+  )
 }
 
 function FellowshipStage({ proposal, fellowshipUncertain, statuses, onVoted }: Props) {
@@ -102,6 +130,7 @@ export function ProposalCard(props: Props) {
     proposal.network === "kusama" ? chain.replace(/^Kusama /, "") : chain
   // An upgrade is named by its release when its runtimes are found in one, and otherwise keeps
   // the title that says only what is on chain.
+  const anchor = proposalAnchor(proposal)
   const release = upgradeVersion(proposal, props.releaseHashes)
   const count = new Set(proposal.upgrades.map((u) => u.chain)).size
   const subject = count === 1 ? short(proposal.upgrades[0]?.chain ?? "") : `${count} chains`
@@ -111,20 +140,30 @@ export function ProposalCard(props: Props) {
       ? `System upgrade to version ${release.version}`
       : `Runtime upgrade of ${subject} to version ${release.version}`
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <article
+      id={anchor}
+      className={`scroll-mt-4 rounded-xl border bg-white p-5 shadow-sm dark:bg-zinc-900 ${
+        props.linked
+          ? "border-pink-500 ring-2 ring-pink-500/40"
+          : "border-zinc-200 dark:border-zinc-800"
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <h2 className="text-lg font-semibold">
           <Prose>{title}</Prose>
         </h2>
-        <span
-          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            proposal.network === "kusama"
-              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-              : "bg-pink-600 text-white"
-          }`}
-        >
-          {NETWORKS[proposal.network].name}
-        </span>
+        <div className="flex items-center gap-3">
+          <CardLink anchor={anchor} />
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              proposal.network === "kusama"
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "bg-pink-600 text-white"
+            }`}
+          >
+            {NETWORKS[proposal.network].name}
+          </span>
+        </div>
       </div>
       {proposal.upgrades.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1.5">

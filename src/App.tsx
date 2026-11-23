@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { CHAINS, type Network, NETWORK_IDS, NETWORKS } from "./chains"
-import type { Proposal } from "./gov/load"
+import { findByAnchor, parseAnchor, type Proposal, proposalAnchor } from "./gov/load"
 import { NamesContext } from "./names"
 import { needsCleanup } from "./gov/cleanup"
 import { CleanupPanel } from "./ui/CleanupPanel"
@@ -11,6 +11,7 @@ import { choice } from "./ui/tx"
 import { UpgradePanel } from "./ui/UpgradePanel"
 import { WalletButton } from "./ui/WalletButton"
 import { useAccountStatuses } from "./useAccountStatuses"
+import { useAnchor } from "./useAnchor"
 import { useChainUpgrades } from "./useChainUpgrades"
 import { useNames } from "./useNames"
 import { useCleanups } from "./useCleanups"
@@ -38,16 +39,49 @@ export default function App() {
 
   const names = useNames(snapshot)
 
-  const [shown, setShown] = useState<Network | "all">("polkadot")
+  // The network that the visitor chose to see, and the link that the page had then.
+  const [picked, setPicked] = useState<{ shown: Network | "all"; anchor: string | null }>({
+    shown: "polkadot",
+    anchor: null,
+  })
   // Under "Polkadot", a Fellowship referendum that acts on Kusama is still shown to the members
   // who can vote on it, since that vote is theirs to cast on Polkadot.
   const canVote = (p: Proposal) =>
     p.fellowship !== undefined &&
     statuses.some((s) => s.rank !== null && s.rank >= (p.fellowship?.minRank ?? 0))
-  const proposals =
-    snapshot?.proposals.filter(
-      (p) => shown === "all" || p.network === shown || (shown === "polkadot" && canVote(p)),
-    ) ?? []
+  const visible = (p: Proposal, under: Network | "all") =>
+    under === "all" || p.network === under || (under === "polkadot" && canVote(p))
+
+  // The card that the address of the page links to. Its network is shown in place of the chosen
+  // one, until the visitor chooses again.
+  const anchor = useAnchor()
+  const target = snapshot && anchor ? findByAnchor(snapshot.proposals, anchor) : undefined
+  const shown =
+    target && picked.anchor !== anchor && !visible(target, picked.shown)
+      ? target.network
+      : picked.shown
+  const setShown = (next: Network | "all") => setPicked({ shown: next, anchor })
+  const proposals = snapshot?.proposals.filter((p) => visible(p, shown)) ?? []
+
+  // The page scrolls to the card the first time it is there. After that the browser follows links
+  // to cards by itself.
+  const targetShown = target !== undefined && proposals.includes(target)
+  const reached = useRef<string | null>(null)
+  useEffect(() => {
+    if (!target || !targetShown || reached.current === anchor) return
+    reached.current = anchor
+    document.getElementById(proposalAnchor(target))?.scrollIntoView()
+  }, [anchor, target, targetShown])
+  // A link to a referendum that is not listed is said to be so, once its network has been read.
+  const linked = anchor ? parseAnchor(anchor) : null
+  const missing =
+    snapshot &&
+    linked &&
+    !target &&
+    (linked.where === "fellowship" ||
+      !(snapshot.pending.includes(linked.where) || snapshot.unreachable.includes(linked.where)))
+      ? `${linked.where === "fellowship" ? "Fellowship" : NETWORKS[linked.where].name} referendum #${linked.index}`
+      : null
 
   const cleanups = useCleanups(
     wallet.accounts.map((a) => a.address),
@@ -121,6 +155,13 @@ export default function App() {
         </p>
       ))}
 
+      {missing && (
+        <p className="mb-3 text-sm text-amber-800 dark:text-amber-300">
+          {missing} is not among the active referenda shown here. It may have ended, or be on a
+          track that the portal does not show.
+        </p>
+      )}
+
       {snapshot && proposals.length === 0 && (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">No active referenda.</p>
       )}
@@ -134,6 +175,7 @@ export default function App() {
               fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
               releaseHashes={releaseHashes ?? {}}
               statuses={statuses}
+              linked={proposal === target}
               onVoted={refresh}
             />
           ))}
