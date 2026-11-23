@@ -148,6 +148,8 @@ describe("parseAnchor", () => {
     expect(parseAnchor("polkadot-1973")).toEqual({ where: "polkadot", index: 1973 })
     expect(parseAnchor("kusama-679")).toEqual({ where: "kusama", index: 679 })
     expect(parseAnchor("fellowship-681")).toEqual({ where: "fellowship", index: 681 })
+    // An index with leading zeros names the same referendum.
+    expect(parseAnchor("polkadot-01973")).toEqual({ where: "polkadot", index: 1973 })
   })
 
   it("rejects anything else that the address of the page may hold", () => {

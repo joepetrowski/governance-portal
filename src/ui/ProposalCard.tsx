@@ -40,7 +40,10 @@ function CardLink({ anchor }: { anchor: string }) {
         url.hash = anchor
         navigator.clipboard
           .writeText(url.toString())
-          .then(() => setCopied(true))
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 3000)
+          })
           .catch(() => setCopied(false))
       }}
     >
