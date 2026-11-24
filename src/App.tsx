@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { CHAINS, type Network, NETWORK_IDS, NETWORKS } from "./chains"
 import { findByAnchor, parseAnchor, type Proposal, proposalAnchor } from "./gov/load"
+import { type Fellowship, FellowshipContext } from "./actor"
 import { NamesContext } from "./names"
+import { actorsFor, pickActor } from "./gov/proxy"
 import { needsCleanup } from "./gov/cleanup"
 import { CleanupPanel } from "./ui/CleanupPanel"
 import { formatTime } from "./ui/format"
+import { ActingFor } from "./ui/ActingFor"
 import { FlowPanel } from "./ui/FlowStatus"
 import { ProposalCard } from "./ui/ProposalCard"
 import { ReleaseWizard } from "./ui/ReleaseWizard"
@@ -15,6 +18,7 @@ import { useAccountStatuses } from "./useAccountStatuses"
 import { useAnchor } from "./useAnchor"
 import { useFinished } from "./useFinished"
 import { useChainUpgrades } from "./useChainUpgrades"
+import { useMemberProxies } from "./useMemberProxies"
 import { useNames } from "./useNames"
 import { useCleanups } from "./useCleanups"
 import { useReleaseHashes } from "./useReleaseHashes"
@@ -22,8 +26,8 @@ import { useSnapshot } from "./useSnapshot"
 import { useWallet } from "./wallet"
 
 /**
- * The page: header with the wallet, the release wizard, approved upgrades, pending cleanup, and
- * the open proposals.
+ * The page: header with the wallet and whom it acts for in the Fellowship, the release wizard,
+ * approved upgrades, pending cleanup, and the open proposals.
  */
 export default function App() {
   const { snapshot, error, refresh } = useSnapshot()
@@ -32,6 +36,29 @@ export default function App() {
     wallet.accounts.map((a) => a.address),
     snapshot,
   )
+  // The Fellowship members that the wallet's accounts act for by proxy, with their ranks and
+  // votes. The selected account acts in the Fellowship as itself or as one of them.
+  const proxies = useMemberProxies(
+    wallet.accounts.map((a) => a.address),
+    snapshot,
+  )
+  const proxied = useAccountStatuses([...new Set(proxies.usable.map((p) => p.real))], snapshot)
+  // Whom the visitor chose to act as, for each account that signs.
+  const [chosen, setChosen] = useState<Record<string, string>>({})
+  const signer = wallet.selected?.address
+  const fellowship = useMemo((): Fellowship => {
+    const options = actorsFor(signer, statuses, proxies.usable, proxied)
+    return {
+      options,
+      actor: pickActor(options, signer === undefined ? undefined : chosen[signer]),
+      choose: (address) =>
+        signer !== undefined && setChosen((all) => ({ ...all, [signer]: address })),
+      members: wallet.accounts
+        .flatMap((account) => actorsFor(account.address, [], proxies.usable, proxied))
+        .filter((m, i, all) => all.findIndex((o) => o.status === m.status) === i),
+      delayed: proxies.delayed,
+    }
+  }, [signer, statuses, proxies, proxied, chosen, wallet.accounts])
 
   const chainUpgrades = useChainUpgrades(snapshot)
   // Release notes are read only when an upgrade is on the page to be named.
@@ -41,7 +68,7 @@ export default function App() {
 
   const anchor = useAnchor()
   const { finished, done: finishedRead } = useFinished(snapshot, anchor)
-  const names = useNames(snapshot, finished)
+  const names = useNames(snapshot, finished, proxies)
 
   // The network that the visitor chose to see, and the link that the page had then.
   const [picked, setPicked] = useState<{ shown: Network | "all"; anchor: string | null }>({
@@ -52,7 +79,7 @@ export default function App() {
   // who can vote on it, since that vote is theirs to cast on Polkadot.
   const canVote = (p: Proposal) =>
     p.fellowship !== undefined &&
-    statuses.some((s) => s.rank !== null && s.rank >= (p.fellowship?.minRank ?? 0))
+    [...statuses, ...proxied].some((s) => s.rank !== null && s.rank >= (p.fellowship?.minRank ?? 0))
   const visible = (p: Proposal, under: Network | "all") =>
     under === "all" || p.network === under || (under === "polkadot" && canVote(p))
 
@@ -98,144 +125,152 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
-      <header className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-2xl font-semibold">Polkadot Governance</h1>
-          <WalletButton />
-        </div>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Active Fellowship referenda, and public referenda of Polkadot and Kusama on the Root,
-          Whitelisted Caller, and Staking Admin tracks.
-        </p>
-      </header>
-
-      {error && (
-        <p className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          Could not read chain state: {error}. {snapshot ? "Showing the last result." : "Retrying."}
-        </p>
-      )}
-
-      {!snapshot && !error && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Reading chain state…</p>
-      )}
-
-      <FlowPanel />
-
-      {snapshot && <ReleaseWizard snapshot={snapshot} statuses={statuses} onSubmitted={refresh} />}
-
-      {snapshot && (
-        <UpgradePanel
-          upgrades={chainUpgrades.filter(
-            (u) => shown === "all" || CHAINS[u.chain].network === shown,
-          )}
-          releaseHashes={releaseHashes}
-          loadedAt={snapshot.loadedAt}
-          onApplied={refresh}
-        />
-      )}
-
-      <CleanupPanel cleanups={cleanups} onCleaned={refresh} />
-
-      {snapshot?.unreachable.map((network) => (
-        <p key={network} className="mb-4 text-sm text-amber-800 dark:text-amber-300">
-          Could not read {NETWORKS[network].name}, so its public referenda are not shown.
-        </p>
-      ))}
-
-      {snapshot && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-zinc-600 dark:text-zinc-400">Show</span>
-          {([...NETWORK_IDS, "all"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={shown === option}
-              className={choice(shown === option)}
-              onClick={() => setShown(option)}
-            >
-              {option === "all" ? "All" : NETWORKS[option].name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {snapshot?.pending.map((network) => (
-        <p key={network} className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-          Reading {NETWORKS[network].name}…
-        </p>
-      ))}
-
-      {missing && (
-        <p className="mb-3 text-sm text-amber-800 dark:text-amber-300">
-          {missing} is not among the referenda shown here. It may not exist, it may be on a track
-          that the portal does not show, or it ended and its last state could not be read.
-        </p>
-      )}
-
-      {snapshot && proposals.length === 0 && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">No active referenda.</p>
-      )}
-
       <NamesContext.Provider value={names}>
-        <div className="space-y-4">
-          {proposals.map((proposal) => (
-            <ProposalCard
-              key={proposal.id}
-              proposal={proposal}
-              fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
-              releaseHashes={releaseHashes ?? {}}
-              statuses={statuses}
-              linked={proposal === target}
-              onVoted={refresh}
-            />
-          ))}
-        </div>
-        {finishedShown.length > 0 && (
-          <section className="mt-8">
-            <h2 className="text-lg font-semibold">Finished</h2>
-            <p className="mt-1 mb-3 text-sm text-zinc-600 dark:text-zinc-400">
-              Referenda that ended in the last 24 hours, or that the address of this page links to,
-              with their final tallies.
+        <FellowshipContext.Provider value={fellowship}>
+          <header className="mb-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h1 className="text-2xl font-semibold">Polkadot Governance</h1>
+              <div className="flex flex-col items-end gap-1">
+                <WalletButton />
+                <ActingFor />
+              </div>
+            </div>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Active Fellowship referenda, and public referenda of Polkadot and Kusama on the Root,
+              Whitelisted Caller, and Staking Admin tracks.
             </p>
-            <div className="space-y-4">
-              {finishedShown.map((proposal) => (
-                <ProposalCard
-                  key={proposal.id}
-                  proposal={proposal}
-                  fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
-                  releaseHashes={releaseHashes ?? {}}
-                  statuses={statuses}
-                  linked={proposal === target}
-                  onVoted={refresh}
-                />
+          </header>
+
+          {error && (
+            <p className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+              Could not read chain state: {error}.{" "}
+              {snapshot ? "Showing the last result." : "Retrying."}
+            </p>
+          )}
+
+          {!snapshot && !error && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Reading chain state…</p>
+          )}
+
+          <FlowPanel />
+
+          {snapshot && (
+            <ReleaseWizard snapshot={snapshot} statuses={statuses} onSubmitted={refresh} />
+          )}
+
+          {snapshot && (
+            <UpgradePanel
+              upgrades={chainUpgrades.filter(
+                (u) => shown === "all" || CHAINS[u.chain].network === shown,
+              )}
+              releaseHashes={releaseHashes}
+              loadedAt={snapshot.loadedAt}
+              onApplied={refresh}
+            />
+          )}
+
+          <CleanupPanel cleanups={cleanups} onCleaned={refresh} />
+
+          {snapshot?.unreachable.map((network) => (
+            <p key={network} className="mb-4 text-sm text-amber-800 dark:text-amber-300">
+              Could not read {NETWORKS[network].name}, so its public referenda are not shown.
+            </p>
+          ))}
+
+          {snapshot && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-zinc-600 dark:text-zinc-400">Show</span>
+              {([...NETWORK_IDS, "all"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={shown === option}
+                  className={choice(shown === option)}
+                  onClick={() => setShown(option)}
+                >
+                  {option === "all" ? "All" : NETWORKS[option].name}
+                </button>
               ))}
             </div>
-          </section>
-        )}
-      </NamesContext.Provider>
+          )}
 
-      <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">
-        {snapshot && (
-          <p>
-            Read from chain state at {formatTime(snapshot.loadedAt)}.
-            {cleanups.length > 0 &&
-              !cleanups.some(needsCleanup) &&
-              " No finished votes or expired locks to clear."}
-          </p>
-        )}
-        <p className="mt-1">
-          The portal is open source.{" "}
-          <a
-            className="font-medium underline"
-            href="https://github.com/joepetrowski/governance-portal"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Contribute or report a problem on GitHub
-          </a>
-          .
-        </p>
-      </footer>
+          {snapshot?.pending.map((network) => (
+            <p key={network} className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+              Reading {NETWORKS[network].name}…
+            </p>
+          ))}
+
+          {missing && (
+            <p className="mb-3 text-sm text-amber-800 dark:text-amber-300">
+              {missing} is not among the referenda shown here. It may not exist, it may be on a
+              track that the portal does not show, or it ended and its last state could not be read.
+            </p>
+          )}
+
+          {snapshot && proposals.length === 0 && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">No active referenda.</p>
+          )}
+
+          <div className="space-y-4">
+            {proposals.map((proposal) => (
+              <ProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
+                releaseHashes={releaseHashes ?? {}}
+                statuses={statuses}
+                linked={proposal === target}
+                onVoted={refresh}
+              />
+            ))}
+          </div>
+          {finishedShown.length > 0 && (
+            <section className="mt-8">
+              <h2 className="text-lg font-semibold">Finished</h2>
+              <p className="mt-1 mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+                Referenda that ended in the last 24 hours, or that the address of this page links
+                to, with their final tallies.
+              </p>
+              <div className="space-y-4">
+                {finishedShown.map((proposal) => (
+                  <ProposalCard
+                    key={proposal.id}
+                    proposal={proposal}
+                    fellowshipUncertain={snapshot?.fellowshipUncertain ?? true}
+                    releaseHashes={releaseHashes ?? {}}
+                    statuses={statuses}
+                    linked={proposal === target}
+                    onVoted={refresh}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <footer className="mt-6 text-xs text-zinc-500 dark:text-zinc-400">
+            {snapshot && (
+              <p>
+                Read from chain state at {formatTime(snapshot.loadedAt)}.
+                {cleanups.length > 0 &&
+                  !cleanups.some(needsCleanup) &&
+                  " No finished votes or expired locks to clear."}
+              </p>
+            )}
+            <p className="mt-1">
+              The portal is open source.{" "}
+              <a
+                className="font-medium underline"
+                href="https://github.com/joepetrowski/governance-portal"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Contribute or report a problem on GitHub
+              </a>
+              .
+            </p>
+          </footer>
+        </FellowshipContext.Provider>
+      </NamesContext.Provider>
     </div>
   )
 }

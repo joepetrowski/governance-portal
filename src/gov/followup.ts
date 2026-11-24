@@ -7,6 +7,7 @@
 import { assetHubApi, collectivesApi, type Network } from "../chains"
 import { formatExact, formatList } from "../ui/format"
 import { type Stage, trackName } from "./load"
+import { asMember, type MemberProxy } from "./proxy"
 import {
   CONVICTIONS,
   decisionDepositTx,
@@ -62,13 +63,15 @@ export type FollowUpCall =
 
 /**
  * The calls that carry out a choice on the referenda that were opened, and a sentence that says
- * exactly what they do, with every amount in full. `deposits` gives the decision deposit of each track, for the sentence.
- * Null if nothing was chosen or nothing was opened. A public aye without a stake is left out.
+ * exactly what they do, with every amount in full. `deposits` gives the decision deposit of each
+ * track, for the sentence. With a proxy, the sentence names the member that the calls are made
+ * for. Null if nothing was chosen or nothing was opened. A public aye without a stake is left out.
  */
 export function followUp(
   opened: Opened[],
   choice: FollowUpChoice,
   deposits: Map<number, bigint>,
+  proxy: MemberProxy | null = null,
 ): { calls: FollowUpCall[]; description: string } | null {
   const calls: FollowUpCall[] = []
   const sentences: string[] = []
@@ -101,7 +104,14 @@ export function followUp(
       `${what[0].toUpperCase()}${what.slice(1)} on ${where} referendum #${referendum.index}.`,
     )
   }
-  return calls.length > 0 ? { calls, description: sentences.join(" ") } : null
+  if (calls.length === 0) return null
+  if (proxy)
+    sentences.push(
+      choice.deposit
+        ? `Made by proxy for ${proxy.real}, whose account pays the deposit.`
+        : `Made by proxy for ${proxy.real}.`,
+    )
+  return { calls, description: sentences.join(" ") }
 }
 
 function callTx(call: FollowUpCall) {
@@ -119,8 +129,11 @@ function callTx(call: FollowUpCall) {
  * The transaction that makes the given calls, on the chain of their referenda: the call itself if
  * there is one, and otherwise a batch that makes all of them or none. All calls must be on
  * referenda of one body and network.
+ *
+ * With a proxy, the calls are made for the member, in one call by proxy. The decision deposit is
+ * then taken from the member's account. Only Fellowship referenda can be acted on by proxy.
  */
-export function followUpTx(calls: FollowUpCall[]) {
+export function followUpTx(calls: FollowUpCall[], proxy: MemberProxy | null = null) {
   const [first] = calls
   const sameChain = calls.every(
     (c) =>
@@ -128,12 +141,14 @@ export function followUpTx(calls: FollowUpCall[]) {
       c.referendum.network === first.referendum.network,
   )
   if (!first || !sameChain) throw new Error("The calls are not on referenda of one chain")
+  if (proxy && first.referendum.body !== "fellowship")
+    throw new Error("A proxy of a Fellowship member cannot act on a public referendum")
   const txs = calls.map(callTx)
-  if (txs.length === 1) return txs[0]
+  if (txs.length === 1) return asMember(txs[0], proxy)
   // The calls are of the chain that the batch is on, which the check above has made sure of.
   const decoded = txs.map((tx) => tx.decodedCall)
   return first.referendum.body === "fellowship"
-    ? collectivesApi().tx.Utility.batch_all({ calls: decoded as never })
+    ? asMember(collectivesApi().tx.Utility.batch_all({ calls: decoded as never }), proxy)
     : assetHubApi(first.referendum.network).tx.Utility.batch_all({ calls: decoded as never })
 }
 

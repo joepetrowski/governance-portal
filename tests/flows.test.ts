@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest"
 import type { FollowUpCall } from "../src/gov/followup"
+import type { MemberProxy } from "../src/gov/proxy"
 import type { Account } from "../src/wallet"
 
 vi.mock("../src/chains", async (original) => ({
@@ -22,12 +23,17 @@ function fakeTx() {
 }
 
 // The second transaction is built from the calls it is given. What they are is recorded here.
-const second = { calls: [] as FollowUpCall[][], txs: [] as ReturnType<typeof fakeTx>[] }
+const second = {
+  calls: [] as FollowUpCall[][],
+  proxies: [] as unknown[],
+  txs: [] as ReturnType<typeof fakeTx>[],
+}
 vi.mock("../src/gov/followup", async (original) => ({
   ...(await original<typeof import("../src/gov/followup")>()),
   decisionDeposits: async () => [{ id: 3, name: "fellows", deposit: 50_000_000_000n }],
-  followUpTx: (calls: FollowUpCall[]) => {
+  followUpTx: (calls: FollowUpCall[], proxy: unknown) => {
     second.calls.push(calls)
+    second.proxies.push(proxy)
     second.txs.push(fakeTx())
     return second.txs.at(-1)
   },
@@ -43,7 +49,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 let serial = 0
 /** Start a flow of a new key, and return what the test drives and observes. */
-async function start(choice: { deposit: boolean; aye: boolean }) {
+async function start(choice: { deposit: boolean; aye: boolean }, proxy?: MemberProxy) {
   const key = `test-${++serial}`
   const first = fakeTx()
   const makeTx = vi.fn(async () => first)
@@ -54,6 +60,7 @@ async function start(choice: { deposit: boolean; aye: boolean }) {
     body: "fellowship" as const,
     network: "polkadot" as const,
     account: { txCreator: {} } as unknown as Account,
+    proxy,
     makeTx,
     choice,
     onDone,
@@ -93,6 +100,28 @@ describe("startFlow", () => {
     second.txs.at(-1)?.finalize()
     expect(getFlow(flow.key)).toMatchObject({ second: { step: "finalized" }, over: true })
     expect(flow.onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it("makes the second transaction by the proxy that the flow was started with", async () => {
+    const proxy = {
+      delegate: "13TRAXTALwNp5vApqwiE74fg8G8ypMyaF9TxRfs4RwrCwxUE",
+      real: "16a357f5Sxab3V2ne4emGQvqJaCLeYpTMx3TCjnQhmJQ71DX",
+      proxyType: { type: "Fellowship", value: undefined },
+      notesPreimage: false,
+    } as MemberProxy
+    const flow = await start({ deposit: true, aye: true }, proxy)
+    flow.first.finalize([submitted(690)])
+    await settle()
+    expect(second.proxies.at(-1)).toBe(proxy)
+    expect(getFlow(flow.key)?.next).toBe(
+      "Place the decision deposit of 5 DOT and vote aye on Fellowship referendum #690. " +
+        `Made by proxy for ${proxy.real}, whose account pays the deposit.`,
+    )
+
+    const plain = await start({ deposit: false, aye: true })
+    plain.first.finalize([submitted(691)])
+    await settle()
+    expect(second.proxies.at(-1)).toBeNull()
   })
 
   it("sends no second transaction when nothing was chosen", async () => {

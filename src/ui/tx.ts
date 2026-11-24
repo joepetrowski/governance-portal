@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { holdClients } from "../chains"
+import { dispatchErrorName, proxyFailure } from "../gov/proxy"
 import type { Account } from "../wallet"
 import { errorMessage } from "../util"
 
@@ -13,17 +14,6 @@ export type TxState =
   | { step: "included" }
   | { step: "finalized" }
   | { step: "failed"; reason: string }
-
-/** Flatten a dispatch error such as Module(ConvictionVoting(InsufficientFunds)) to its names. */
-function dispatchErrorName(error: unknown): string {
-  const names: string[] = []
-  let current = error
-  while (typeof current === "object" && current !== null && "type" in current) {
-    names.push(String((current as { type: unknown }).type))
-    current = (current as { value?: unknown }).value
-  }
-  return names.filter((n) => n !== "Module").join(".") || "unknown error"
-}
 
 /** The events of a transaction on its way into a block, as `polkadot-api` reports them. */
 export interface TxEvents {
@@ -50,7 +40,8 @@ export interface Submittable {
 
 /**
  * Follow a submitted transaction to finality, reporting each state to `report`. `onFinalized` runs
- * once it is finalized, with the events that the transaction emitted. The connections stay open
+ * once it is finalized, with the events that the transaction emitted. A transaction whose call by
+ * proxy failed counts as failed, and `onFinalized` does not run for it. The connections stay open
  * until the events end, also in a tab that is in the background.
  */
 export function watchTx(
@@ -69,6 +60,15 @@ export function watchTx(
         report({
           step: "failed",
           reason: `Rejected by the chain: ${dispatchErrorName(event.dispatchError)}`,
+        })
+        return
+      }
+      // A call made by proxy can fail in a transaction that the chain reports as successful.
+      const inner = proxyFailure(event.events ?? [])
+      if (inner !== null) {
+        report({
+          step: "failed",
+          reason: `The call made by proxy was rejected by the chain: ${inner}`,
         })
         return
       }

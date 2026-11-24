@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { type FellowshipActor, useFellowship } from "../actor"
 import { CHAINS, type ChainId, chainsOf, type Network, NETWORK_IDS, NETWORKS } from "../chains"
 import type { Proposal, Snapshot, Stage } from "../gov/load"
 import {
@@ -75,6 +76,8 @@ function SubmitStep(props: {
   /** For a Fellowship step, the hashes of the calls that its referenda whitelist. */
   whitelists?: string[]
   status: AccountStatus | undefined
+  /** For a Fellowship step, the member that it is submitted for by proxy, if any. */
+  proxy?: FellowshipActor["proxy"]
   makeTx: () => Promise<Submittable>
   onSubmitted: () => void
 }) {
@@ -111,6 +114,7 @@ function SubmitStep(props: {
           label="Submit"
           account={account}
           status={props.status}
+          proxy={props.proxy}
           makeTx={props.makeTx}
           onDone={props.onSubmitted}
         />
@@ -144,10 +148,13 @@ function sharedSelection(): { tag: string; network: Network; chains: ChainId[] }
 const existingFor = (built: BuiltUpgrade, proposals: Proposal[]) =>
   proposals.find((p) => p.network === built.network && p.whitelist?.hash === built.proposal.hash)
 
-/** Why the selected account should not open the Fellowship referendum, if anything. */
+/**
+ * Why whoever acts in the Fellowship for the selected account should not open the Fellowship
+ * referendum, if anything.
+ */
 function fellowshipBlock(
   existing: Proposal | undefined,
-  status: AccountStatus | undefined,
+  actor: FellowshipActor | null,
   snapshot: Snapshot,
   /** Whether it was submitted from this page already, by this step or another. */
   sent: boolean,
@@ -163,12 +170,15 @@ function fellowshipBlock(
       "Cannot tell whether a Fellowship referendum for this call is already open, because an " +
       "open Fellowship referendum could not be read in full. Try again shortly."
     )
+  const status = actor?.status
   if (status && (status.rank ?? -1) < FELLOWSHIP_SUBMIT_RANK)
     return (
       `Needs a Fellowship member of rank ${FELLOWSHIP_SUBMIT_RANK} or higher. ` +
       (status.rank === null
         ? "The selected account is not a member."
-        : `The selected account has rank ${status.rank}.`)
+        : actor.proxy
+          ? `The member that the selected account acts for has rank ${status.rank}.`
+          : `The selected account has rank ${status.rank}.`)
     )
   return null
 }
@@ -183,15 +193,15 @@ function AllFellowship(props: {
   statuses: AccountStatus[]
   onSubmitted: () => void
 }) {
-  const wallet = useWallet()
-  const status = props.statuses.find((s) => s.address === wallet.selected?.address)
+  const { actor } = useFellowship()
+  const proxy = actor?.proxy ?? null
   const { sent } = useContext(SentContext)
   const flowKey = `fellowship:${props.builts.map((b) => b.proposal.hash).join("+")}`
   const active = flowActive(useFlow(flowKey))
   const blocks = props.builts.map((b) =>
     fellowshipBlock(
       existingFor(b, props.snapshot.proposals),
-      status,
+      actor,
       props.snapshot,
       sent.has(b.proposal.hash),
     ),
@@ -221,10 +231,11 @@ function AllFellowship(props: {
       body="fellowship"
       network="polkadot"
       count={props.builts.length}
-      status={status}
+      status={actor?.status}
+      proxy={proxy}
       blocked={blocks.find((b) => b !== null) ?? null}
       whitelists={props.builts.map((b) => b.proposal.hash)}
-      makeTx={() => fellowshipSubmitAllTx(props.builts)}
+      makeTx={() => fellowshipSubmitAllTx(props.builts, proxy)}
       onSubmitted={props.onSubmitted}
     />
   )
@@ -248,9 +259,11 @@ function Result(props: {
   const names = built.runtimes.map((r) => CHAINS[r.chain].name)
 
   const { sent } = useContext(SentContext)
+  const { actor } = useFellowship()
+  const proxy = actor?.proxy ?? null
   const fellowshipBlocked = fellowshipBlock(
     existing,
-    status,
+    actor,
     props.snapshot,
     sent.has(built.proposal.hash),
   )
@@ -293,10 +306,11 @@ function Result(props: {
           flowTitle={`Fellowship referendum for the upgrade of ${NETWORKS[network].name} to ${built.tag}`}
           body="fellowship"
           network="polkadot"
-          status={status}
+          status={actor?.status}
+          proxy={proxy}
           blocked={fellowshipBlocked}
           whitelists={[built.proposal.hash]}
-          makeTx={() => fellowshipSubmitTx(built)}
+          makeTx={() => fellowshipSubmitTx(built, proxy)}
           onSubmitted={props.onSubmitted}
         />
         <SubmitStep

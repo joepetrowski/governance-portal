@@ -10,6 +10,12 @@ to whitelist a proposal.
 The portal:
 
 - Lists active referenda and lets connected accounts vote on them.
+- Lets an account act for a Fellowship member that has made it a proxy on Collectives. It votes,
+  opens Fellowship referenda, and places their decision deposits for the member, with
+  `Proxy.proxy`. Deposits come from the member's account, and fees from the account that signs.
+  A preimage is noted for the member too if the kind of proxy permits it, as `NonTransfer` does,
+  and by the account that signs if not. Proxies with a delay are not supported, and public
+  referenda are always acted on by the connected account itself.
 - Links related referenda, such as a Whitelisted Caller referendum and the Fellowship referendum
   that whitelists it.
 - Offers to place the decision deposit and vote aye when opening a referendum. Both are chosen by

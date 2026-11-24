@@ -2,7 +2,10 @@ import { useEffect, useState } from "react"
 import type { Snapshot } from "./gov/load"
 import { type AccountStatus, loadAccountStatus } from "./gov/votes"
 
-/** Votes, rank, and balance of each wallet account, refreshed with every snapshot. */
+// One empty list for every render, so that what depends on the result does not change with it.
+const NONE: AccountStatus[] = []
+
+/** Votes, rank, and balance of each of the given accounts, refreshed with every snapshot. */
 export function useAccountStatuses(addresses: string[], snapshot: Snapshot | null) {
   const [statuses, setStatuses] = useState<AccountStatus[]>([])
   const key = addresses.join(",")
@@ -32,5 +35,5 @@ export function useAccountStatuses(addresses: string[], snapshot: Snapshot | nul
   }, [key, snapshot])
 
   // With no accounts there is nothing to show, whatever was loaded before.
-  return key === "" ? [] : statuses
+  return key === "" ? NONE : statuses
 }

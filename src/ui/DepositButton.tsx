@@ -1,5 +1,7 @@
+import { useFellowship } from "../actor"
 import { CHAINS, NETWORKS } from "../chains"
 import type { Stage } from "../gov/load"
+import { asMember } from "../gov/proxy"
 import { type AccountStatus, decisionDepositTx } from "../gov/votes"
 import { useWallet } from "../wallet"
 import { formatBalance } from "./format"
@@ -7,7 +9,11 @@ import { useDepositPending } from "./flows"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
 
-/** Places a missing decision deposit from the selected account. Any account may place it. */
+/**
+ * Places a missing decision deposit from the selected account. Any account may place it. On a
+ * Fellowship referendum, an account that acts for a member by proxy places it for the member,
+ * from the member's account, like everything else that it does there.
+ */
 export function DepositButton(props: {
   stage: Stage
   statuses: AccountStatus[]
@@ -17,7 +23,10 @@ export function DepositButton(props: {
   const wallet = useWallet()
   const { state, busy, submit } = useSubmit(props.onPlaced)
   const account = wallet.selected
-  const status = props.statuses.find((s) => s.address === account?.address)
+  const { actor } = useFellowship()
+  const proxy = stage.body === "fellowship" ? (actor?.proxy ?? null) : null
+  const status = proxy ? actor?.status : props.statuses.find((s) => s.address === account?.address)
+  const whose = proxy ? "The member's account" : "The selected account"
   // A second deposit would fail, and take the vote that is batched with the first down with it.
   const pending = useDepositPending(stage)
   if (pending)
@@ -40,7 +49,7 @@ export function DepositButton(props: {
   if (free < stage.deposit.required)
     return (
       <span className="text-xs text-zinc-500 dark:text-zinc-400">
-        The selected account has {formatBalance(free, stage.network)} free on {CHAINS[chain].name}.
+        {whose} has {formatBalance(free, stage.network)} free on {CHAINS[chain].name}.
       </span>
     )
   return (
@@ -49,10 +58,15 @@ export function DepositButton(props: {
         type="button"
         disabled={busy}
         className={choice(false)}
-        title="The deposit is returned after the referendum ends."
-        onClick={() => submit(decisionDepositTx(stage), account)}
+        title={
+          proxy
+            ? "The deposit is taken from the member's account, by proxy, and returned to it " +
+              "after the referendum ends."
+            : "The deposit is returned after the referendum ends."
+        }
+        onClick={() => submit(asMember(decisionDepositTx(stage), proxy), account)}
       >
-        Place deposit
+        {proxy ? "Place deposit by proxy" : "Place deposit"}
       </button>
       <TxStatus state={state} />
     </span>

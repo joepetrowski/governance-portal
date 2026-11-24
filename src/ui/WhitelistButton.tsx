@@ -1,3 +1,4 @@
+import { useFellowship } from "../actor"
 import type { Proposal } from "../gov/load"
 import { FELLOWSHIP_SUBMIT_RANK, fellowshipCallsFor, fellowshipSubmitTx } from "../gov/release"
 import type { AccountStatus } from "../gov/votes"
@@ -11,8 +12,9 @@ import { loadOpengov } from "./opengov"
 /**
  * Opens the Fellowship referendum that whitelists the call of a public referendum which has none,
  * with the choice to place its decision deposit and to vote aye. Shown to everyone, and enabled
- * for a selected account of sufficient rank. Renders nothing when the call is not known: The
- * public referendum names it by hash alone, and its preimage is not on chain.
+ * for a selected account of sufficient rank, or one that is a proxy for a member of that rank.
+ * Renders nothing when the call is not known: The public referendum names it by hash alone, and
+ * its preimage is not on chain.
  */
 export function WhitelistButton(props: {
   proposal: Proposal
@@ -21,6 +23,7 @@ export function WhitelistButton(props: {
 }) {
   const { proposal } = props
   const wallet = useWallet()
+  const { actor } = useFellowship()
   const call = proposal.whitelist?.call
   // The wizard opens the same referendum under the same key, so the two do not open it twice.
   const flowKey = proposal.whitelist ? `fellowship:${proposal.whitelist.hash}` : ""
@@ -30,7 +33,8 @@ export function WhitelistButton(props: {
   if (!call) return null
 
   const account = wallet.selected
-  const status = props.statuses.find((s) => s.address === account?.address)
+  const status = actor?.status
+  const proxy = actor?.proxy ?? null
   const rank = status?.rank ?? null
   if (!account || rank === null || rank < FELLOWSHIP_SUBMIT_RANK)
     return (
@@ -53,8 +57,12 @@ export function WhitelistButton(props: {
       label="Open Fellowship referendum"
       account={account}
       status={status}
+      proxy={proxy}
       makeTx={async () =>
-        fellowshipSubmitTx(await fellowshipCallsFor(await loadOpengov(), proposal.network, call))
+        fellowshipSubmitTx(
+          await fellowshipCallsFor(await loadOpengov(), proposal.network, call),
+          proxy,
+        )
       }
       onDone={props.onSubmitted}
     />

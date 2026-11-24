@@ -22,6 +22,7 @@ import {
 import { loadReleaseHashes } from "./versions"
 import { blake2Hex, type CallNode, decodeCall, effects, hexOf, isCallTo, walk } from "./decode"
 import { orNothing } from "../util"
+import { asMember, type MemberProxy } from "./proxy"
 
 /**
  * The `opengov` WebAssembly module, once initialized. Passed in so that the browser and Node can
@@ -399,8 +400,20 @@ export async function buildUpgrade(
 /**
  * The transaction that opens the Fellowship referendum, on Collectives. It notes the preimage in
  * the same batch when the proposal is too long to be carried inline.
+ *
+ * With a proxy, the referendum is opened for the member, whose account pays the submission
+ * deposit. A proxy that may note a preimage, such as a `NonTransfer` one, notes it for the member
+ * as well, in one call that does everything or nothing, and the member's account pays its
+ * deposit. A proxy that may not, such as a `Fellowship` one, leaves the preimage to the signer,
+ * since anyone may note it. If the submission then fails inside the proxy, the preimage stays
+ * noted. So a preimage that is on chain already is not noted again, which would fail, and trying
+ * again works.
  */
-export async function fellowshipSubmitTx(built: Pick<BuiltUpgrade, "calls">) {
+export async function fellowshipSubmitTx(
+  built: Pick<BuiltUpgrade, "calls">,
+  proxy: MemberProxy | null = null,
+) {
+  if (proxy) return fellowshipSubmitAllTx([built], proxy)
   const api = collectivesApi()
   const submit = await api.txFromCallData(fromHex(built.calls.fellowship_referendum!.encoded))
   if (!built.calls.fellowship_preimage) return submit
@@ -410,15 +423,44 @@ export async function fellowshipSubmitTx(built: Pick<BuiltUpgrade, "calls">) {
 
 /**
  * One transaction that opens the Fellowship referenda of several upgrades, on Collectives. It
- * either opens all of them or none.
+ * either opens all of them or none. See `fellowshipSubmitTx` for what a proxy changes.
  */
-export async function fellowshipSubmitAllTx(builts: Pick<BuiltUpgrade, "calls">[]) {
+export async function fellowshipSubmitAllTx(
+  builts: Pick<BuiltUpgrade, "calls">[],
+  proxy: MemberProxy | null = null,
+) {
   const api = collectivesApi()
-  const encoded = builts.flatMap(({ calls }) =>
-    [calls.fellowship_preimage, calls.fellowship_referendum].filter((c) => c != null),
+  const decode = (calls: ({ encoded: string } | null | undefined)[]) =>
+    Promise.all(calls.filter((c) => c != null).map((c) => api.txFromCallData(fromHex(c.encoded))))
+  const batch = (txs: { decodedCall: unknown }[]) =>
+    api.tx.Utility.batch_all({ calls: txs.map((tx) => tx.decodedCall) as never })
+  if (!proxy)
+    return batch(
+      await decode(
+        builts.flatMap(({ calls }) => [calls.fellowship_preimage, calls.fellowship_referendum]),
+      ),
+    )
+  const [notes, submissions] = await Promise.all([
+    decode(builts.map(({ calls }) => calls.fellowship_preimage)),
+    decode(builts.map(({ calls }) => calls.fellowship_referendum)),
+  ])
+  // The preimage is on chain only if its bytes are. No runtime API or view function tells, so
+  // storage is read.
+  const noted = await Promise.all(
+    notes.map(async (note) => {
+      const { bytes } = (note.decodedCall.value as { value: { bytes?: unknown } }).value
+      if (!(bytes instanceof Uint8Array)) return false
+      const key: [string, number] = [blake2Hex(bytes), bytes.length]
+      return (await api.query.Preimage.PreimageFor.getValue(key)) !== undefined
+    }),
   )
-  const txs = await Promise.all(encoded.map((c) => api.txFromCallData(fromHex(c.encoded))))
-  return api.tx.Utility.batch_all({ calls: txs.map((tx) => tx.decodedCall) })
+  const preimages = notes.filter((_, i) => !noted[i])
+  if (submissions.length === 0) throw new Error("There is no Fellowship referendum to open")
+  // What the proxy makes is one call, so that it makes all of it or none.
+  const one = (txs: ReturnType<typeof batch>[]) => (txs.length === 1 ? txs[0] : batch(txs))
+  if (proxy.notesPreimage) return asMember(one([...preimages, ...submissions]), proxy)
+  const submit = asMember(one(submissions), proxy)
+  return preimages.length === 0 ? submit : batch([...preimages, submit])
 }
 
 /**

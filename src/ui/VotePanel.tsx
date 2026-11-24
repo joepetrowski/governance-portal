@@ -1,6 +1,8 @@
 import { useState } from "react"
+import { type FellowshipActor, useFellowship } from "../actor"
 import { NETWORKS } from "../chains"
 import type { Stage } from "../gov/load"
+import { asMember } from "../gov/proxy"
 import {
   type AccountStatus,
   CONVICTIONS,
@@ -10,6 +12,7 @@ import {
   stageKey,
 } from "../gov/votes"
 import { type Account, useWallet } from "../wallet"
+import { AccountName } from "./AccountName"
 import { formatExact, parseBalance, shortAddress } from "./format"
 import { choice, useSubmit } from "./tx"
 import { TxStatus } from "./TxStatus"
@@ -18,13 +21,19 @@ import { useLockDays } from "../useLockDays"
 const field =
   "rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
 
+/**
+ * The vote of whoever acts in the Fellowship for the selected account: that account, or a member
+ * that it is a proxy for. A vote by proxy is the member's vote, signed and paid for by the
+ * selected account.
+ */
 function FellowshipVote(props: {
   stage: Stage
   account: Account
-  status: AccountStatus
+  actor: FellowshipActor
   onVoted: () => void
 }) {
-  const { stage, account, status } = props
+  const { stage, account } = props
+  const { status, proxy } = props.actor
   const { state, busy, submit } = useSubmit(props.onVoted)
   const minRank = stage.minRank ?? 0
   const mine = status.votes[stageKey(stage)]
@@ -34,21 +43,30 @@ function FellowshipVote(props: {
   if (status.rank < minRank)
     return (
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        This track needs rank {minRank}. The selected account has rank {status.rank}.
+        This track needs rank {minRank}. {proxy ? "The member" : "The selected account"} has rank{" "}
+        {status.rank}.
       </p>
     )
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-zinc-600 dark:text-zinc-400">
-          Vote as rank {status.rank}:
+      <div className="flex flex-wrap items-center gap-2">
+        {/* The longer label of a vote by proxy takes a line of its own. */}
+        <span className={`text-sm text-zinc-600 dark:text-zinc-400 ${proxy ? "w-full" : ""}`}>
+          Vote as rank {status.rank}
+          {proxy && (
+            <>
+              {" "}
+              for <AccountName address={status.address} network="polkadot" />, by proxy
+            </>
+          )}
+          :
         </span>
         <button
           type="button"
           disabled={busy}
           aria-pressed={current === "aye"}
           className={choice(current === "aye")}
-          onClick={() => submit(fellowshipVoteTx(stage, true), account)}
+          onClick={() => submit(asMember(fellowshipVoteTx(stage, true), proxy), account)}
         >
           Aye
         </button>
@@ -57,7 +75,7 @@ function FellowshipVote(props: {
           disabled={busy}
           aria-pressed={current === "nay"}
           className={choice(current === "nay")}
-          onClick={() => submit(fellowshipVoteTx(stage, false), account)}
+          onClick={() => submit(asMember(fellowshipVoteTx(stage, false), proxy), account)}
         >
           Nay
         </button>
@@ -171,10 +189,16 @@ function OpenVote(props: {
   )
 }
 
-/** How the wallet's accounts have voted on a stage, and the controls to vote. */
+/**
+ * How the wallet's accounts have voted on a stage, and the controls to vote. On a Fellowship
+ * referendum, the members that the wallet is a proxy for are listed with its own accounts.
+ */
 export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVoted: () => void }) {
-  const { stage, statuses } = props
+  const { stage } = props
   const wallet = useWallet()
+  const { actor, members } = useFellowship()
+  const byProxy = stage.body === "fellowship" ? members.map((m) => m.status) : []
+  const statuses = [...props.statuses, ...byProxy]
   if (!wallet.connected || statuses.length === 0) return null
 
   const nameOf = (address: string) =>
@@ -194,15 +218,26 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
         </p>
       ) : cast.length === 0 ? (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {statuses.length === 1
-            ? "Your account has not voted."
-            : "None of your accounts have voted."}
+          {byProxy.length > 0
+            ? "Neither your accounts nor the members that they act for have voted."
+            : statuses.length === 1
+              ? "Your account has not voted."
+              : "None of your accounts have voted."}
         </p>
       ) : (
         <ul className="space-y-0.5 text-sm">
           {cast.map(({ status, vote }) => (
             <li key={status.address}>
-              <span className="font-medium">{nameOf(status.address)}:</span>{" "}
+              <span className="font-medium">
+                {byProxy.includes(status) ? (
+                  <>
+                    <AccountName address={status.address} network="polkadot" />, by proxy
+                  </>
+                ) : (
+                  nameOf(status.address)
+                )}
+                :
+              </span>{" "}
               {vote.type === "voted" && vote.detail}
               {vote.type === "delegating" &&
                 `Delegated to ${shortAddress(vote.target)} on this track`}
@@ -210,23 +245,24 @@ export function VotePanel(props: { stage: Stage; statuses: AccountStatus[]; onVo
           ))}
         </ul>
       )}
-      {wallet.selected && selected && !unread && (
+      {wallet.selected && stage.body === "fellowship" && actor && (
         <div className="mt-3">
-          {stage.body === "fellowship" ? (
-            <FellowshipVote
-              stage={stage}
-              account={wallet.selected}
-              status={selected}
-              onVoted={props.onVoted}
-            />
-          ) : (
-            <OpenVote
-              stage={stage}
-              account={wallet.selected}
-              status={selected}
-              onVoted={props.onVoted}
-            />
-          )}
+          <FellowshipVote
+            stage={stage}
+            account={wallet.selected}
+            actor={actor}
+            onVoted={props.onVoted}
+          />
+        </div>
+      )}
+      {wallet.selected && stage.body === "open" && selected && !unread && (
+        <div className="mt-3">
+          <OpenVote
+            stage={stage}
+            account={wallet.selected}
+            status={selected}
+            onVoted={props.onVoted}
+          />
         </div>
       )}
     </div>

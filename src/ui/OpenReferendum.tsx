@@ -2,8 +2,10 @@ import { useEffect, useState } from "react"
 import { CHAINS, type Network, NETWORKS } from "../chains"
 import { decisionDeposits, type FollowUpChoice } from "../gov/followup"
 import type { Stage } from "../gov/load"
+import type { MemberProxy } from "../gov/proxy"
 import type { AccountStatus } from "../gov/votes"
 import { type Account } from "../wallet"
+import { AccountName } from "./AccountName"
 import { formatBalance, formatExact, parseBalance } from "./format"
 import { flowActive, startFlow, useFlow } from "./flows"
 import { FlowStatus } from "./FlowStatus"
@@ -45,14 +47,23 @@ export function OpenReferendum(props: {
   reserves?: bigint
   /** The account that signs both transactions. */
   account: Account
-  /** What is known of that account, from which the form tells what it can afford. */
+  /**
+   * What is known of the account that pays the deposits, from which the form tells what it can
+   * afford: the signing account, or the member that it acts for.
+   */
   status: AccountStatus | undefined
+  /**
+   * The Fellowship member that the referenda are opened for by proxy, if not for the account
+   * itself. `makeTx` must then build a submission by the same proxy.
+   */
+  proxy?: MemberProxy | null
   /** Builds the transaction that opens the referenda. */
   makeTx: () => Promise<Submittable>
   /** Runs when no more is to come: after the last transaction of the flow ends, well or not. */
   onDone: () => void
 }) {
   const { body, network, account, status } = props
+  const proxy = props.proxy ?? null
   const count = props.count ?? 1
   const { token } = NETWORKS[network]
   const chain = body === "fellowship" ? "collectives" : NETWORKS[network].assetHub
@@ -132,8 +143,8 @@ export function OpenReferendum(props: {
                 (count > 1 ? ` (${formatBalance(expected, network)} each)` : "")}
             {!canDeposit && free !== null && (
               <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                The selected account has {formatBalance(free, network)} free on {CHAINS[chain].name}
-                , which is not enough.
+                {proxy ? "The member's account" : "The selected account"} has{" "}
+                {formatBalance(free, network)} free on {CHAINS[chain].name}, which is not enough.
               </span>
             )}
           </span>
@@ -181,6 +192,15 @@ export function OpenReferendum(props: {
           </p>
         )}
       </fieldset>
+      {proxy && (
+        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+          Opened for <AccountName address={proxy.real} network="polkadot" />, by proxy. That account
+          pays the deposits and casts the vote. The selected account signs and pays the fees.
+          {!proxy.notesPreimage &&
+            " This kind of proxy may not note a preimage. If the proposal needs one, the " +
+              "selected account notes it and pays its deposit."}
+        </p>
+      )}
       <button
         type="button"
         disabled={stakeProblem !== null}
@@ -193,6 +213,7 @@ export function OpenReferendum(props: {
             body,
             network,
             account,
+            proxy,
             makeTx: props.makeTx,
             choice: choices,
             onDone: props.onDone,

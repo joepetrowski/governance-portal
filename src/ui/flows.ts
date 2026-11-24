@@ -15,6 +15,7 @@ import {
   openedBy,
 } from "../gov/followup"
 import type { Stage } from "../gov/load"
+import type { MemberProxy } from "../gov/proxy"
 import { errorMessage } from "../util"
 import type { Account } from "../wallet"
 import { type Submittable, type TxState, watchTx } from "./tx"
@@ -81,6 +82,9 @@ export const flowSubmitted = (flow: Flow | undefined): boolean =>
  * The submission is built, signed, and followed to finality. The referenda that it opened are then
  * read from its own events, and the deposit and the vote are made on those, in a second
  * transaction that the account is asked to sign. `onDone` runs when no more is to come.
+ *
+ * `makeTx` builds the submission, by proxy if it is to be. `proxy` says for whom the second
+ * transaction is made.
  */
 export function startFlow(opts: {
   key: string
@@ -89,11 +93,14 @@ export function startFlow(opts: {
   body: Stage["body"]
   network: Network
   account: Account
+  /** The member that the deposit and the vote are made for, if not for the account itself. */
+  proxy?: MemberProxy | null
   makeTx: () => Promise<Submittable>
   choice: FollowUpChoice
   onDone: () => void
 }): void {
   const { key, body, network, account, choice } = opts
+  const proxy = opts.proxy ?? null
   if (flowActive(flows.find((flow) => flow.key === key))) return
   const fresh: Flow = {
     key,
@@ -137,12 +144,12 @@ export function startFlow(opts: {
           "the vote were not made. They can be made from the referendum's card in the list.",
       )
     const tracks = await decisionDeposits(body, network)
-    const plan = followUp(opened, choice, new Map(tracks.map((t) => [t.id, t.deposit])))
+    const plan = followUp(opened, choice, new Map(tracks.map((t) => [t.id, t.deposit])), proxy)
     if (!plan) return finish()
     // What the transaction does is on the page before the wallet is asked to sign it.
     update({ next: plan.description, deposit: choice.deposit, second: { step: "signing" } })
     watchTx(
-      followUpTx(plan.calls).createSubmitAndWatch(account.txCreator),
+      followUpTx(plan.calls, proxy).createSubmitAndWatch(account.txCreator),
       (second) => {
         update({ second })
         if (second.step === "failed") finish()
