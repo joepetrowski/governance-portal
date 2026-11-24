@@ -1,4 +1,5 @@
-// Holds the connection to a browser wallet extension and remembers the last choice.
+// Holds the connection to a wallet that injects itself into the page, and remembers the last
+// choice.
 
 import {
   connectInjectedExtension,
@@ -6,7 +7,7 @@ import {
   type InjectedExtension,
 } from "polkadot-api/pjs-signer"
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { type Account, WalletContext } from "./wallet"
+import { type Account, inNovaWallet, walletChoices, WalletContext, walletToRejoin } from "./wallet"
 import { errorMessage } from "./util"
 
 const DAPP_NAME = "Polkadot Governance"
@@ -27,12 +28,10 @@ const remember = (value: { extension?: string; address?: string }) => {
   }
 }
 
-const talismanFirst = (names: string[]) =>
-  [...names].sort((a, b) => Number(b === "talisman") - Number(a === "talisman"))
-
 /** Holds the wallet connection for the page. Reconnects to the extension used on the last visit. */
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState<string[]>([])
+  const [looking, setLooking] = useState(true)
   const [extension, setExtension] = useState<InjectedExtension | null>(null)
   // Accounts that the extension reported after connecting, kept with the extension they are from.
   const [reported, setReported] = useState<{ from: InjectedExtension; accounts: Account[] } | null>(
@@ -56,17 +55,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Extensions inject themselves shortly after the page loads, so look more than once.
+  // Wallets inject themselves shortly after the page loads, so look more than once.
   useEffect(() => {
     const look = () => {
-      const found = talismanFirst(getInjectedExtensions())
+      const nova = inNovaWallet()
+      const found = walletChoices(getInjectedExtensions(), nova)
       setAvailable(found)
-      const previous = remembered().extension
-      if (!attempted.current && previous && found.includes(previous)) void connect(previous)
+      const previous = walletToRejoin(remembered().extension, found, nova)
+      if (!attempted.current && previous) void connect(previous)
     }
     look()
-    const timers = [300, 1500].map((ms) => setTimeout(look, ms))
-    return () => timers.forEach(clearTimeout)
+    // The browser of a wallet on a phone can take a few seconds.
+    const timers = [300, 1500, 4000].map((ms) => setTimeout(look, ms))
+    const last = setTimeout(() => setLooking(false), 4000)
+    return () => [...timers, last].forEach(clearTimeout)
   }, [connect])
 
   useEffect(
@@ -99,6 +101,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     <WalletContext.Provider
       value={{
         available,
+        looking,
         connected: extension?.name ?? null,
         accounts,
         selected,

@@ -1,15 +1,12 @@
-import { useWallet } from "../wallet"
+import { inNovaWallet, useWallet, walletLabel } from "../wallet"
 import { shortAddress } from "./format"
 
-const displayName = (extension: string) =>
-  extension === "talisman"
-    ? "Talisman"
-    : extension.replace(/-js$/, "").replace(/^./, (c) => c.toUpperCase())
+const displayName = (wallet: string) => walletLabel(wallet, inNovaWallet())
 
 const button =
   "rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
 
-/** Connects a wallet extension, or, once connected, selects the signing account and disconnects. */
+/** Connects a wallet, or, once connected, selects the signing account and disconnects. */
 export function WalletButton() {
   const wallet = useWallet()
 
@@ -43,10 +40,15 @@ export function WalletButton() {
     )
   }
 
+  // Inside a wallet's own browser, the wallet can take a moment to appear. Saying that none was
+  // found would be wrong until the page has stopped looking.
+  if (wallet.available.length === 0 && wallet.looking)
+    return <span className="text-sm text-zinc-500 dark:text-zinc-400">Looking for a wallet…</span>
   if (wallet.available.length === 0)
     return (
       <span className="text-sm text-zinc-500 dark:text-zinc-400">
-        No wallet extension found. Install Talisman to vote.
+        No wallet found. Install an extension such as Talisman or Polkadot.js, or open this page in
+        the browser of Nova Wallet.
       </span>
     )
 
